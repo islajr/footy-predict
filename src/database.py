@@ -1,0 +1,1228 @@
+"""
+Footy Predict — Database Layer
+
+SQLite schema, connection management, and data access methods.
+All database operations go through the Database class.
+
+Tables:
+    leagues          — League metadata and API identifiers
+    teams            — Team info with cross-source ID mappings
+    matches          — Historical + upcoming fixtures
+    match_stats      — Per-team match statistics (shots, corners, etc.)
+    team_season_stats — Cached seasonal aggregates from API
+    head_to_head     — H2H records between team pairs
+    standings        — Current league tables
+    predictions      — System's market recommendations with rationale
+    prediction_results — Actual outcomes for accuracy tracking
+    api_cache        — Response cache with TTL expiration
+    api_usage        — Daily API quota tracking
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any, Generator
+
+from src.config import DB_PATH
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Schema
+# ═══════════════════════════════════════════════════════════════
+
+SCHEMA = """
+-- League metadata
+CREATE TABLE IF NOT EXISTS leagues (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL,
+    country         TEXT    NOT NULL,
+    slug            TEXT    NOT NULL UNIQUE,
+    api_football_id INTEGER UNIQUE,
+    fdo_code        TEXT,
+    csv_code        TEXT,
+    tier            TEXT    NOT NULL DEFAULT 'extended'
+);
+
+-- Teams with cross-source ID mappings
+CREATE TABLE IF NOT EXISTS teams (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL,
+    api_football_id INTEGER UNIQUE,
+    fdo_id          INTEGER,
+    league_id       INTEGER REFERENCES leagues(id),
+    short_name      TEXT,
+    aliases         TEXT    DEFAULT '[]',  -- JSON array of alternative names
+    logo_url        TEXT,
+    UNIQUE(name, league_id)
+);
+
+-- Match fixtures (historical + upcoming)
+CREATE TABLE IF NOT EXISTS matches (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_football_id INTEGER UNIQUE,
+    league_id       INTEGER NOT NULL REFERENCES leagues(id),
+    season          TEXT    NOT NULL,
+    matchday        INTEGER,
+    date            TEXT    NOT NULL,  -- ISO 8601
+    status          TEXT    NOT NULL DEFAULT 'SCHEDULED',
+    home_team_id    INTEGER NOT NULL REFERENCES teams(id),
+    away_team_id    INTEGER NOT NULL REFERENCES teams(id),
+    home_score      INTEGER,
+    away_score      INTEGER,
+    ht_home_score   INTEGER,
+    ht_away_score   INTEGER,
+    referee         TEXT,
+    venue           TEXT,
+    source          TEXT    NOT NULL DEFAULT 'api_football',
+    created_at      TEXT    DEFAULT (datetime('now')),
+    updated_at      TEXT    DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date);
+CREATE INDEX IF NOT EXISTS idx_matches_league ON matches(league_id, season);
+CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches(home_team_id, away_team_id);
+
+-- Per-team match statistics
+CREATE TABLE IF NOT EXISTS match_stats (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL REFERENCES matches(id),
+    team_id         INTEGER NOT NULL REFERENCES teams(id),
+    shots           INTEGER,
+    shots_on_target INTEGER,
+    possession      REAL,
+    corners         INTEGER,
+    fouls           INTEGER,
+    yellow_cards    INTEGER,
+    red_cards       INTEGER,
+    offsides        INTEGER,
+    passes          INTEGER,
+    pass_accuracy   REAL,
+    expected_goals  REAL,
+    UNIQUE(match_id, team_id)
+);
+
+-- Cached seasonal team statistics from API
+CREATE TABLE IF NOT EXISTS team_season_stats (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_id             INTEGER NOT NULL REFERENCES teams(id),
+    league_id           INTEGER NOT NULL REFERENCES leagues(id),
+    season              TEXT    NOT NULL,
+    matches_played      INTEGER DEFAULT 0,
+    wins                INTEGER DEFAULT 0,
+    draws               INTEGER DEFAULT 0,
+    losses              INTEGER DEFAULT 0,
+    goals_scored        INTEGER DEFAULT 0,
+    goals_conceded      INTEGER DEFAULT 0,
+    home_played         INTEGER DEFAULT 0,
+    home_wins           INTEGER DEFAULT 0,
+    home_draws          INTEGER DEFAULT 0,
+    home_losses         INTEGER DEFAULT 0,
+    home_goals_scored   INTEGER DEFAULT 0,
+    home_goals_conceded INTEGER DEFAULT 0,
+    away_played         INTEGER DEFAULT 0,
+    away_wins           INTEGER DEFAULT 0,
+    away_draws          INTEGER DEFAULT 0,
+    away_losses         INTEGER DEFAULT 0,
+    away_goals_scored   INTEGER DEFAULT 0,
+    away_goals_conceded INTEGER DEFAULT 0,
+    form                TEXT,       -- e.g. "WWDLW" (most recent last)
+    clean_sheets        INTEGER DEFAULT 0,
+    failed_to_score     INTEGER DEFAULT 0,
+    avg_goals_scored    REAL,
+    avg_goals_conceded  REAL,
+    btts_percentage     REAL,      -- Both Teams To Score %
+    over_2_5_percentage REAL,
+    under_2_5_percentage REAL,
+    penalty_scored      INTEGER DEFAULT 0,
+    penalty_missed      INTEGER DEFAULT 0,
+    fetched_at          TEXT    DEFAULT (datetime('now')),
+    UNIQUE(team_id, league_id, season)
+);
+
+-- Head-to-head records between team pairs
+CREATE TABLE IF NOT EXISTS head_to_head (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    team_a_id       INTEGER NOT NULL REFERENCES teams(id),
+    team_b_id       INTEGER NOT NULL REFERENCES teams(id),
+    total_matches   INTEGER DEFAULT 0,
+    team_a_wins     INTEGER DEFAULT 0,
+    draws           INTEGER DEFAULT 0,
+    team_b_wins     INTEGER DEFAULT 0,
+    team_a_goals    INTEGER DEFAULT 0,
+    team_b_goals    INTEGER DEFAULT 0,
+    last_matches    TEXT    DEFAULT '[]',  -- JSON: recent H2H match summaries
+    fetched_at      TEXT    DEFAULT (datetime('now')),
+    UNIQUE(team_a_id, team_b_id)
+);
+
+-- League standings
+CREATE TABLE IF NOT EXISTS standings (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    league_id       INTEGER NOT NULL REFERENCES leagues(id),
+    season          TEXT    NOT NULL,
+    team_id         INTEGER NOT NULL REFERENCES teams(id),
+    position        INTEGER NOT NULL,
+    played          INTEGER DEFAULT 0,
+    won             INTEGER DEFAULT 0,
+    drawn           INTEGER DEFAULT 0,
+    lost            INTEGER DEFAULT 0,
+    goals_for       INTEGER DEFAULT 0,
+    goals_against   INTEGER DEFAULT 0,
+    goal_difference INTEGER DEFAULT 0,
+    points          INTEGER DEFAULT 0,
+    form            TEXT,
+    fetched_at      TEXT    DEFAULT (datetime('now')),
+    UNIQUE(league_id, season, team_id)
+);
+
+-- System predictions with full rationale
+CREATE TABLE IF NOT EXISTS predictions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    match_id        INTEGER NOT NULL REFERENCES matches(id),
+    market          TEXT    NOT NULL,       -- Market code (e.g. "over-under-2.5")
+    pick            TEXT    NOT NULL,       -- The recommendation (e.g. "Over")
+    probability     REAL    NOT NULL,       -- 0.0 – 1.0
+    confidence      TEXT    NOT NULL,       -- "HIGH", "MEDIUM", "LOW"
+    implied_odds    REAL,                   -- 1.0 / probability
+    rationale       TEXT    NOT NULL,       -- Human-readable explanation
+    risk_factors    TEXT    DEFAULT '[]',   -- JSON array of risk strings
+    supporting_stats TEXT   DEFAULT '{}',   -- JSON dict of key stats
+    factor_scores   TEXT    DEFAULT '{}',   -- JSON dict: factor name → score
+    created_at      TEXT    DEFAULT (datetime('now')),
+    UNIQUE(match_id, market)
+);
+
+-- Actual outcomes for accuracy tracking
+CREATE TABLE IF NOT EXISTS prediction_results (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    prediction_id   INTEGER NOT NULL UNIQUE REFERENCES predictions(id),
+    actual_outcome  TEXT    NOT NULL,
+    is_correct      INTEGER NOT NULL,       -- 0 or 1
+    recorded_at     TEXT    DEFAULT (datetime('now'))
+);
+
+-- Calibration weight history
+CREATE TABLE IF NOT EXISTS weight_history (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    factor_name     TEXT    NOT NULL,
+    old_weight      REAL    NOT NULL,
+    new_weight      REAL    NOT NULL,
+    reason          TEXT,
+    calibrated_at   TEXT    DEFAULT (datetime('now'))
+);
+
+-- API response cache
+CREATE TABLE IF NOT EXISTS api_cache (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    cache_key       TEXT    NOT NULL UNIQUE,  -- deterministic hash of url + params
+    url             TEXT    NOT NULL,
+    source          TEXT    NOT NULL,         -- 'api_football' or 'football_data_org'
+    response_data   TEXT    NOT NULL,         -- JSON string
+    cached_at       TEXT    DEFAULT (datetime('now')),
+    expires_at      TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cache_key ON api_cache(cache_key);
+CREATE INDEX IF NOT EXISTS idx_cache_expires ON api_cache(expires_at);
+
+-- Daily API usage tracking
+CREATE TABLE IF NOT EXISTS api_usage (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    source          TEXT    NOT NULL,
+    date            TEXT    NOT NULL,
+    requests_made   INTEGER DEFAULT 0,
+    requests_limit  INTEGER,
+    UNIQUE(source, date)
+);
+"""
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Database Class
+# ═══════════════════════════════════════════════════════════════
+
+class Database:
+    """
+    SQLite data access layer for Footy Predict.
+
+    Usage:
+        db = Database()
+        teams = db.get_teams_by_league(league_id=1)
+    """
+
+    def __init__(self, db_path: Path | str = DB_PATH):
+        self.db_path = Path(db_path)
+        self._init_db()
+
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
+        """Context manager yielding a connection with WAL mode and FK enforcement."""
+        conn = sqlite3.connect(str(self.db_path))
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def _init_db(self) -> None:
+        """Create all tables if they don't exist."""
+        with self._connect() as conn:
+            conn.executescript(SCHEMA)
+
+    # ── Helpers ─────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+        """Convert a sqlite3.Row to a plain dict, or None."""
+        if row is None:
+            return None
+        return dict(row)
+
+    @staticmethod
+    def _rows_to_dicts(rows: list[sqlite3.Row]) -> list[dict[str, Any]]:
+        """Convert a list of sqlite3.Rows to a list of dicts."""
+        return [dict(r) for r in rows]
+
+    def _now(self) -> str:
+        """Current UTC timestamp in ISO format."""
+        return datetime.now(timezone.utc).isoformat()
+
+    # ═══════════════════════════════════════════════════════
+    #  Leagues
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_league(
+        self,
+        name: str,
+        country: str,
+        slug: str,
+        api_football_id: int | None = None,
+        fdo_code: str | None = None,
+        csv_code: str | None = None,
+        tier: str = "extended",
+    ) -> int:
+        """Insert or update a league. Returns the league ID."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO leagues (name, country, slug, api_football_id, fdo_code, csv_code, tier)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(slug) DO UPDATE SET
+                    name=excluded.name,
+                    country=excluded.country,
+                    api_football_id=excluded.api_football_id,
+                    fdo_code=excluded.fdo_code,
+                    csv_code=excluded.csv_code,
+                    tier=excluded.tier
+                """,
+                (name, country, slug, api_football_id, fdo_code, csv_code, tier),
+            )
+            row = conn.execute(
+                "SELECT id FROM leagues WHERE slug = ?", (slug,)
+            ).fetchone()
+            return row["id"]
+
+    def get_league(self, slug: str) -> dict[str, Any] | None:
+        """Get a league by slug."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM leagues WHERE slug = ?", (slug,)
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    def get_league_by_api_football_id(self, api_id: int) -> dict[str, Any] | None:
+        """Get a league by its API-Football ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM leagues WHERE api_football_id = ?", (api_id,)
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    def get_all_leagues(self) -> list[dict[str, Any]]:
+        """Get all leagues ordered by tier then name."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM leagues ORDER BY tier, name"
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def seed_leagues(self) -> None:
+        """Populate the leagues table from config.LEAGUES."""
+        from src.config import LEAGUES as LEAGUE_CONFIGS
+
+        for cfg in LEAGUE_CONFIGS.values():
+            self.upsert_league(
+                name=cfg.name,
+                country=cfg.country,
+                slug=cfg.slug,
+                api_football_id=cfg.api_football_id,
+                fdo_code=cfg.football_data_org_code,
+                csv_code=cfg.csv_code,
+                tier=cfg.tier,
+            )
+
+    # ═══════════════════════════════════════════════════════
+    #  Teams
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_team(
+        self,
+        name: str,
+        league_id: int,
+        api_football_id: int | None = None,
+        fdo_id: int | None = None,
+        short_name: str | None = None,
+        aliases: list[str] | None = None,
+        logo_url: str | None = None,
+    ) -> int:
+        """Insert or update a team. Returns the team ID."""
+        aliases_json = json.dumps(aliases or [])
+        with self._connect() as conn:
+            # Try matching by API-Football ID first, then by name+league
+            if api_football_id:
+                existing = conn.execute(
+                    "SELECT id FROM teams WHERE api_football_id = ?",
+                    (api_football_id,),
+                ).fetchone()
+                if existing:
+                    conn.execute(
+                        """UPDATE teams SET name=?, league_id=?, fdo_id=?,
+                           short_name=?, aliases=?, logo_url=?
+                           WHERE api_football_id=?""",
+                        (name, league_id, fdo_id, short_name, aliases_json,
+                         logo_url, api_football_id),
+                    )
+                    return existing["id"]
+
+            conn.execute(
+                """
+                INSERT INTO teams (name, api_football_id, fdo_id, league_id,
+                                   short_name, aliases, logo_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(name, league_id) DO UPDATE SET
+                    api_football_id=COALESCE(excluded.api_football_id, teams.api_football_id),
+                    fdo_id=COALESCE(excluded.fdo_id, teams.fdo_id),
+                    short_name=COALESCE(excluded.short_name, teams.short_name),
+                    aliases=excluded.aliases,
+                    logo_url=COALESCE(excluded.logo_url, teams.logo_url)
+                """,
+                (name, api_football_id, fdo_id, league_id,
+                 short_name, aliases_json, logo_url),
+            )
+            row = conn.execute(
+                "SELECT id FROM teams WHERE name = ? AND league_id = ?",
+                (name, league_id),
+            ).fetchone()
+            return row["id"]
+
+    def get_team(self, team_id: int) -> dict[str, Any] | None:
+        """Get a team by internal ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM teams WHERE id = ?", (team_id,)
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    def get_team_by_api_football_id(self, api_id: int) -> dict[str, Any] | None:
+        """Get a team by its API-Football ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM teams WHERE api_football_id = ?", (api_id,)
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    def find_team_by_name(
+        self, name: str, league_id: int | None = None
+    ) -> dict[str, Any] | None:
+        """
+        Find a team by name or alias. Optionally scoped to a league.
+        Useful for matching team names from different data sources.
+        """
+        with self._connect() as conn:
+            # Exact match first
+            if league_id:
+                row = conn.execute(
+                    "SELECT * FROM teams WHERE name = ? AND league_id = ?",
+                    (name, league_id),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM teams WHERE name = ?", (name,)
+                ).fetchone()
+
+            if row:
+                return self._row_to_dict(row)
+
+            # Search aliases
+            query = "SELECT * FROM teams WHERE aliases LIKE ?"
+            params: list[Any] = [f'%"{name}"%']
+            if league_id:
+                query += " AND league_id = ?"
+                params.append(league_id)
+
+            row = conn.execute(query, params).fetchone()
+            return self._row_to_dict(row)
+
+    def get_teams_by_league(self, league_id: int) -> list[dict[str, Any]]:
+        """Get all teams in a league."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM teams WHERE league_id = ? ORDER BY name",
+                (league_id,),
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  Matches
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_match(
+        self,
+        league_id: int,
+        season: str,
+        date: str,
+        home_team_id: int,
+        away_team_id: int,
+        api_football_id: int | None = None,
+        matchday: int | None = None,
+        status: str = "SCHEDULED",
+        home_score: int | None = None,
+        away_score: int | None = None,
+        ht_home_score: int | None = None,
+        ht_away_score: int | None = None,
+        referee: str | None = None,
+        venue: str | None = None,
+        source: str = "api_football",
+    ) -> int:
+        """Insert or update a match. Returns the match ID."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO matches (
+                    api_football_id, league_id, season, matchday, date, status,
+                    home_team_id, away_team_id, home_score, away_score,
+                    ht_home_score, ht_away_score, referee, venue, source, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(api_football_id) DO UPDATE SET
+                    status=excluded.status,
+                    home_score=COALESCE(excluded.home_score, matches.home_score),
+                    away_score=COALESCE(excluded.away_score, matches.away_score),
+                    ht_home_score=COALESCE(excluded.ht_home_score, matches.ht_home_score),
+                    ht_away_score=COALESCE(excluded.ht_away_score, matches.ht_away_score),
+                    referee=COALESCE(excluded.referee, matches.referee),
+                    venue=COALESCE(excluded.venue, matches.venue),
+                    matchday=COALESCE(excluded.matchday, matches.matchday),
+                    updated_at=datetime('now')
+                """,
+                (api_football_id, league_id, season, matchday, date, status,
+                 home_team_id, away_team_id, home_score, away_score,
+                 ht_home_score, ht_away_score, referee, venue, source),
+            )
+            if api_football_id:
+                row = conn.execute(
+                    "SELECT id FROM matches WHERE api_football_id = ?",
+                    (api_football_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    """SELECT id FROM matches
+                       WHERE league_id=? AND date=? AND home_team_id=? AND away_team_id=?""",
+                    (league_id, date, home_team_id, away_team_id),
+                ).fetchone()
+            return row["id"]
+
+    def get_upcoming_matches(
+        self,
+        league_id: int | None = None,
+        from_date: str | None = None,
+        to_date: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """
+        Get upcoming (SCHEDULED/TIMED) matches, optionally filtered.
+
+        If no date range given, defaults to next 14 days.
+        """
+        if from_date is None:
+            from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if to_date is None:
+            to_date = (
+                datetime.now(timezone.utc) + timedelta(days=14)
+            ).strftime("%Y-%m-%d")
+
+        with self._connect() as conn:
+            query = """
+                SELECT m.*, ht.name AS home_team_name, at.name AS away_team_name,
+                       l.name AS league_name, l.slug AS league_slug
+                FROM matches m
+                JOIN teams ht ON m.home_team_id = ht.id
+                JOIN teams at ON m.away_team_id = at.id
+                JOIN leagues l ON m.league_id = l.id
+                WHERE m.status IN ('SCHEDULED', 'TIMED')
+                  AND m.date >= ? AND m.date <= ?
+            """
+            params: list[Any] = [from_date, to_date + "T23:59:59"]
+
+            if league_id:
+                query += " AND m.league_id = ?"
+                params.append(league_id)
+
+            query += " ORDER BY m.date, l.name LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def get_recent_matches(
+        self,
+        team_id: int,
+        limit: int = 10,
+        home_only: bool = False,
+        away_only: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Get a team's most recent completed matches."""
+        with self._connect() as conn:
+            query = """
+                SELECT m.*, ht.name AS home_team_name, at.name AS away_team_name
+                FROM matches m
+                JOIN teams ht ON m.home_team_id = ht.id
+                JOIN teams at ON m.away_team_id = at.id
+                WHERE m.status = 'FINISHED'
+            """
+            params: list[Any] = []
+
+            if home_only:
+                query += " AND m.home_team_id = ?"
+                params.append(team_id)
+            elif away_only:
+                query += " AND m.away_team_id = ?"
+                params.append(team_id)
+            else:
+                query += " AND (m.home_team_id = ? OR m.away_team_id = ?)"
+                params.extend([team_id, team_id])
+
+            query += " ORDER BY m.date DESC LIMIT ?"
+            params.append(limit)
+
+            rows = conn.execute(query, params).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def get_match(self, match_id: int) -> dict[str, Any] | None:
+        """Get a single match with team and league names."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT m.*, ht.name AS home_team_name, at.name AS away_team_name,
+                       l.name AS league_name, l.slug AS league_slug
+                FROM matches m
+                JOIN teams ht ON m.home_team_id = ht.id
+                JOIN teams at ON m.away_team_id = at.id
+                JOIN leagues l ON m.league_id = l.id
+                WHERE m.id = ?
+                """,
+                (match_id,),
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    def get_finished_matches_without_results(self) -> list[dict[str, Any]]:
+        """Get matches that are FINISHED but have no prediction results recorded."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT m.*, ht.name AS home_team_name,
+                       at.name AS away_team_name, l.name AS league_name
+                FROM matches m
+                JOIN teams ht ON m.home_team_id = ht.id
+                JOIN teams at ON m.away_team_id = at.id
+                JOIN leagues l ON m.league_id = l.id
+                JOIN predictions p ON p.match_id = m.id
+                LEFT JOIN prediction_results pr ON pr.prediction_id = p.id
+                WHERE m.status = 'FINISHED'
+                  AND pr.id IS NULL
+                ORDER BY m.date
+                """
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  Match Stats
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_match_stats(
+        self,
+        match_id: int,
+        team_id: int,
+        **stats: Any,
+    ) -> None:
+        """Insert or update match statistics for a team."""
+        valid_cols = {
+            "shots", "shots_on_target", "possession", "corners", "fouls",
+            "yellow_cards", "red_cards", "offsides", "passes",
+            "pass_accuracy", "expected_goals",
+        }
+        filtered = {k: v for k, v in stats.items() if k in valid_cols}
+        if not filtered:
+            return
+
+        cols = ", ".join(filtered.keys())
+        placeholders = ", ".join(["?"] * len(filtered))
+        updates = ", ".join(f"{k}=excluded.{k}" for k in filtered)
+
+        with self._connect() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO match_stats (match_id, team_id, {cols})
+                VALUES (?, ?, {placeholders})
+                ON CONFLICT(match_id, team_id) DO UPDATE SET {updates}
+                """,
+                (match_id, team_id, *filtered.values()),
+            )
+
+    def get_match_stats(self, match_id: int) -> list[dict[str, Any]]:
+        """Get stats for both teams in a match."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT ms.*, t.name AS team_name
+                   FROM match_stats ms
+                   JOIN teams t ON ms.team_id = t.id
+                   WHERE ms.match_id = ?""",
+                (match_id,),
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  Team Season Stats
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_team_season_stats(
+        self,
+        team_id: int,
+        league_id: int,
+        season: str,
+        **stats: Any,
+    ) -> None:
+        """Insert or update seasonal team statistics."""
+        valid_cols = {
+            "matches_played", "wins", "draws", "losses",
+            "goals_scored", "goals_conceded",
+            "home_played", "home_wins", "home_draws", "home_losses",
+            "home_goals_scored", "home_goals_conceded",
+            "away_played", "away_wins", "away_draws", "away_losses",
+            "away_goals_scored", "away_goals_conceded",
+            "form", "clean_sheets", "failed_to_score",
+            "avg_goals_scored", "avg_goals_conceded",
+            "btts_percentage", "over_2_5_percentage", "under_2_5_percentage",
+            "penalty_scored", "penalty_missed",
+        }
+        filtered = {k: v for k, v in stats.items() if k in valid_cols}
+        filtered["fetched_at"] = self._now()
+
+        cols = ", ".join(filtered.keys())
+        placeholders = ", ".join(["?"] * len(filtered))
+        updates = ", ".join(f"{k}=excluded.{k}" for k in filtered)
+
+        with self._connect() as conn:
+            conn.execute(
+                f"""
+                INSERT INTO team_season_stats (team_id, league_id, season, {cols})
+                VALUES (?, ?, ?, {placeholders})
+                ON CONFLICT(team_id, league_id, season) DO UPDATE SET {updates}
+                """,
+                (team_id, league_id, season, *filtered.values()),
+            )
+
+    def get_team_season_stats(
+        self, team_id: int, league_id: int, season: str
+    ) -> dict[str, Any] | None:
+        """Get cached seasonal stats for a team."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT * FROM team_season_stats
+                   WHERE team_id=? AND league_id=? AND season=?""",
+                (team_id, league_id, season),
+            ).fetchone()
+            return self._row_to_dict(row)
+
+    # ═══════════════════════════════════════════════════════
+    #  Head-to-Head
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_h2h(
+        self,
+        team_a_id: int,
+        team_b_id: int,
+        total_matches: int,
+        team_a_wins: int,
+        draws: int,
+        team_b_wins: int,
+        team_a_goals: int,
+        team_b_goals: int,
+        last_matches: list[dict] | None = None,
+    ) -> None:
+        """Insert or update head-to-head record. team_a is always the lower ID."""
+        # Normalize order so (A, B) and (B, A) map to the same row
+        if team_a_id > team_b_id:
+            team_a_id, team_b_id = team_b_id, team_a_id
+            team_a_wins, team_b_wins = team_b_wins, team_a_wins
+            team_a_goals, team_b_goals = team_b_goals, team_a_goals
+
+        last_json = json.dumps(last_matches or [])
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO head_to_head
+                    (team_a_id, team_b_id, total_matches,
+                     team_a_wins, draws, team_b_wins,
+                     team_a_goals, team_b_goals, last_matches, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(team_a_id, team_b_id) DO UPDATE SET
+                    total_matches=excluded.total_matches,
+                    team_a_wins=excluded.team_a_wins,
+                    draws=excluded.draws,
+                    team_b_wins=excluded.team_b_wins,
+                    team_a_goals=excluded.team_a_goals,
+                    team_b_goals=excluded.team_b_goals,
+                    last_matches=excluded.last_matches,
+                    fetched_at=excluded.fetched_at
+                """,
+                (team_a_id, team_b_id, total_matches,
+                 team_a_wins, draws, team_b_wins,
+                 team_a_goals, team_b_goals, last_json),
+            )
+
+    def get_h2h(
+        self, team_a_id: int, team_b_id: int
+    ) -> dict[str, Any] | None:
+        """Get H2H record between two teams (order-independent)."""
+        a, b = min(team_a_id, team_b_id), max(team_a_id, team_b_id)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM head_to_head WHERE team_a_id=? AND team_b_id=?",
+                (a, b),
+            ).fetchone()
+            result = self._row_to_dict(row)
+            if result and result.get("last_matches"):
+                result["last_matches"] = json.loads(result["last_matches"])
+            return result
+
+    # ═══════════════════════════════════════════════════════
+    #  Standings
+    # ═══════════════════════════════════════════════════════
+
+    def upsert_standing(
+        self,
+        league_id: int,
+        season: str,
+        team_id: int,
+        position: int,
+        played: int = 0,
+        won: int = 0,
+        drawn: int = 0,
+        lost: int = 0,
+        goals_for: int = 0,
+        goals_against: int = 0,
+        goal_difference: int = 0,
+        points: int = 0,
+        form: str | None = None,
+    ) -> None:
+        """Insert or update a team's league standing."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO standings
+                    (league_id, season, team_id, position, played, won, drawn,
+                     lost, goals_for, goals_against, goal_difference, points,
+                     form, fetched_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(league_id, season, team_id) DO UPDATE SET
+                    position=excluded.position,
+                    played=excluded.played,
+                    won=excluded.won,
+                    drawn=excluded.drawn,
+                    lost=excluded.lost,
+                    goals_for=excluded.goals_for,
+                    goals_against=excluded.goals_against,
+                    goal_difference=excluded.goal_difference,
+                    points=excluded.points,
+                    form=excluded.form,
+                    fetched_at=excluded.fetched_at
+                """,
+                (league_id, season, team_id, position, played, won, drawn,
+                 lost, goals_for, goals_against, goal_difference, points, form),
+            )
+
+    def get_standings(
+        self, league_id: int, season: str
+    ) -> list[dict[str, Any]]:
+        """Get league table ordered by position."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT s.*, t.name AS team_name
+                   FROM standings s
+                   JOIN teams t ON s.team_id = t.id
+                   WHERE s.league_id=? AND s.season=?
+                   ORDER BY s.position""",
+                (league_id, season),
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  Predictions
+    # ═══════════════════════════════════════════════════════
+
+    def insert_prediction(
+        self,
+        match_id: int,
+        market: str,
+        pick: str,
+        probability: float,
+        confidence: str,
+        rationale: str,
+        implied_odds: float | None = None,
+        risk_factors: list[str] | None = None,
+        supporting_stats: dict | None = None,
+        factor_scores: dict | None = None,
+    ) -> int:
+        """Record a prediction. Returns the prediction ID."""
+        if implied_odds is None and probability > 0:
+            implied_odds = round(1.0 / probability, 2)
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO predictions
+                    (match_id, market, pick, probability, confidence,
+                     implied_odds, rationale, risk_factors,
+                     supporting_stats, factor_scores)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(match_id, market) DO UPDATE SET
+                    pick=excluded.pick,
+                    probability=excluded.probability,
+                    confidence=excluded.confidence,
+                    implied_odds=excluded.implied_odds,
+                    rationale=excluded.rationale,
+                    risk_factors=excluded.risk_factors,
+                    supporting_stats=excluded.supporting_stats,
+                    factor_scores=excluded.factor_scores,
+                    created_at=datetime('now')
+                """,
+                (match_id, market, pick, probability, confidence,
+                 implied_odds,
+                 rationale,
+                 json.dumps(risk_factors or []),
+                 json.dumps(supporting_stats or {}),
+                 json.dumps(factor_scores or {})),
+            )
+            row = conn.execute(
+                "SELECT id FROM predictions WHERE match_id=? AND market=?",
+                (match_id, market),
+            ).fetchone()
+            return row["id"]
+
+    def get_predictions_for_match(
+        self, match_id: int
+    ) -> list[dict[str, Any]]:
+        """Get all predictions for a match."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM predictions WHERE match_id=? ORDER BY probability DESC",
+                (match_id,),
+            ).fetchall()
+            results = self._rows_to_dicts(rows)
+            for r in results:
+                r["risk_factors"] = json.loads(r.get("risk_factors", "[]"))
+                r["supporting_stats"] = json.loads(r.get("supporting_stats", "{}"))
+                r["factor_scores"] = json.loads(r.get("factor_scores", "{}"))
+            return results
+
+    def get_high_confidence_predictions(
+        self,
+        min_confidence: str = "HIGH",
+        from_date: str | None = None,
+        to_date: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get predictions at or above a confidence level, with match info."""
+        confidence_levels = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
+        min_level = confidence_levels.get(min_confidence, 1)
+        valid_confidences = [
+            k for k, v in confidence_levels.items() if v >= min_level
+        ]
+        placeholders = ", ".join(["?"] * len(valid_confidences))
+
+        with self._connect() as conn:
+            query = f"""
+                SELECT p.*, m.date, m.status,
+                       ht.name AS home_team_name, at.name AS away_team_name,
+                       l.name AS league_name
+                FROM predictions p
+                JOIN matches m ON p.match_id = m.id
+                JOIN teams ht ON m.home_team_id = ht.id
+                JOIN teams at ON m.away_team_id = at.id
+                JOIN leagues l ON m.league_id = l.id
+                WHERE p.confidence IN ({placeholders})
+            """
+            params: list[Any] = list(valid_confidences)
+
+            if from_date:
+                query += " AND m.date >= ?"
+                params.append(from_date)
+            if to_date:
+                query += " AND m.date <= ?"
+                params.append(to_date + "T23:59:59")
+
+            query += " ORDER BY p.probability DESC"
+            rows = conn.execute(query, params).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  Prediction Results & Accuracy
+    # ═══════════════════════════════════════════════════════
+
+    def record_result(
+        self, prediction_id: int, actual_outcome: str, is_correct: bool
+    ) -> None:
+        """Record the actual outcome for a prediction."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO prediction_results (prediction_id, actual_outcome, is_correct)
+                VALUES (?, ?, ?)
+                ON CONFLICT(prediction_id) DO UPDATE SET
+                    actual_outcome=excluded.actual_outcome,
+                    is_correct=excluded.is_correct,
+                    recorded_at=datetime('now')
+                """,
+                (prediction_id, actual_outcome, int(is_correct)),
+            )
+
+    def get_accuracy_stats(
+        self,
+        market: str | None = None,
+        league_slug: str | None = None,
+        confidence: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Calculate accuracy statistics with optional filters.
+
+        Returns dict with: total, correct, incorrect, accuracy,
+        by_confidence, by_market breakdowns.
+        """
+        with self._connect() as conn:
+            base_query = """
+                FROM prediction_results pr
+                JOIN predictions p ON pr.prediction_id = p.id
+                JOIN matches m ON p.match_id = m.id
+                JOIN leagues l ON m.league_id = l.id
+            """
+            conditions: list[str] = []
+            params: list[Any] = []
+
+            if market:
+                conditions.append("p.market = ?")
+                params.append(market)
+            if league_slug:
+                conditions.append("l.slug = ?")
+                params.append(league_slug)
+            if confidence:
+                conditions.append("p.confidence = ?")
+                params.append(confidence)
+
+            where = " WHERE " + " AND ".join(conditions) if conditions else ""
+
+            # Overall stats
+            row = conn.execute(
+                f"""SELECT
+                        COUNT(*) AS total,
+                        SUM(pr.is_correct) AS correct,
+                        SUM(1 - pr.is_correct) AS incorrect,
+                        ROUND(AVG(pr.is_correct) * 100, 1) AS accuracy_pct
+                    {base_query}{where}""",
+                params,
+            ).fetchone()
+
+            stats = dict(row) if row else {}
+
+            # By confidence breakdown
+            rows = conn.execute(
+                f"""SELECT p.confidence,
+                        COUNT(*) AS total,
+                        SUM(pr.is_correct) AS correct,
+                        ROUND(AVG(pr.is_correct) * 100, 1) AS accuracy_pct
+                    {base_query}{where}
+                    GROUP BY p.confidence
+                    ORDER BY accuracy_pct DESC""",
+                params,
+            ).fetchall()
+            stats["by_confidence"] = self._rows_to_dicts(rows)
+
+            # By market breakdown
+            rows = conn.execute(
+                f"""SELECT p.market,
+                        COUNT(*) AS total,
+                        SUM(pr.is_correct) AS correct,
+                        ROUND(AVG(pr.is_correct) * 100, 1) AS accuracy_pct
+                    {base_query}{where}
+                    GROUP BY p.market
+                    ORDER BY accuracy_pct DESC""",
+                params,
+            ).fetchall()
+            stats["by_market"] = self._rows_to_dicts(rows)
+
+            return stats
+
+    def get_total_predictions(self) -> int:
+        """Count total recorded predictions (with results)."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM prediction_results"
+            ).fetchone()
+            return row["cnt"] if row else 0
+
+    # ═══════════════════════════════════════════════════════
+    #  Weight History (Calibration)
+    # ═══════════════════════════════════════════════════════
+
+    def record_weight_change(
+        self,
+        factor_name: str,
+        old_weight: float,
+        new_weight: float,
+        reason: str,
+    ) -> None:
+        """Log a calibration weight adjustment."""
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO weight_history
+                   (factor_name, old_weight, new_weight, reason)
+                   VALUES (?, ?, ?, ?)""",
+                (factor_name, old_weight, new_weight, reason),
+            )
+
+    def get_weight_history(
+        self, factor_name: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Get calibration history, optionally for a specific factor."""
+        with self._connect() as conn:
+            if factor_name:
+                rows = conn.execute(
+                    """SELECT * FROM weight_history
+                       WHERE factor_name=?
+                       ORDER BY calibrated_at DESC LIMIT ?""",
+                    (factor_name, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM weight_history
+                       ORDER BY calibrated_at DESC LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    # ═══════════════════════════════════════════════════════
+    #  API Cache
+    # ═══════════════════════════════════════════════════════
+
+    def cache_response(
+        self,
+        cache_key: str,
+        url: str,
+        source: str,
+        response_data: dict | list,
+        ttl_seconds: int,
+    ) -> None:
+        """Store an API response in the cache."""
+        expires = (
+            datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+        ).isoformat()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_cache (cache_key, url, source, response_data, expires_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    response_data=excluded.response_data,
+                    cached_at=datetime('now'),
+                    expires_at=excluded.expires_at
+                """,
+                (cache_key, url, source, json.dumps(response_data), expires),
+            )
+
+    def get_cached_response(self, cache_key: str) -> dict | list | None:
+        """Retrieve a cached response if it hasn't expired."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """SELECT response_data FROM api_cache
+                   WHERE cache_key=? AND expires_at > datetime('now')""",
+                (cache_key,),
+            ).fetchone()
+            if row:
+                return json.loads(row["response_data"])
+            return None
+
+    def clear_expired_cache(self) -> int:
+        """Remove expired cache entries. Returns count of deleted rows."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM api_cache WHERE expires_at <= datetime('now')"
+            )
+            return cursor.rowcount
+
+    # ═══════════════════════════════════════════════════════
+    #  API Usage Tracking
+    # ═══════════════════════════════════════════════════════
+
+    def increment_api_usage(self, source: str, limit: int | None = None) -> int:
+        """
+        Increment today's API usage counter for a source.
+        Returns the new count.
+        """
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO api_usage (source, date, requests_made, requests_limit)
+                VALUES (?, ?, 1, ?)
+                ON CONFLICT(source, date) DO UPDATE SET
+                    requests_made = api_usage.requests_made + 1
+                """,
+                (source, today, limit),
+            )
+            row = conn.execute(
+                "SELECT requests_made FROM api_usage WHERE source=? AND date=?",
+                (source, today),
+            ).fetchone()
+            return row["requests_made"]
+
+    def get_api_usage_today(self, source: str) -> dict[str, Any]:
+        """Get today's API usage for a source."""
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM api_usage WHERE source=? AND date=?",
+                (source, today),
+            ).fetchone()
+            if row:
+                return dict(row)
+            return {
+                "source": source,
+                "date": today,
+                "requests_made": 0,
+                "requests_limit": None,
+            }
+
+    def get_remaining_quota(self, source: str, daily_limit: int) -> int:
+        """Get remaining API calls for today."""
+        usage = self.get_api_usage_today(source)
+        return max(0, daily_limit - usage["requests_made"])
