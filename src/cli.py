@@ -215,7 +215,6 @@ def status(ctx: click.Context) -> None:
     panel = formatter.format_quota_status_cli(
         api_football_usage=api_usage,
         fdo_usage=fdo_usage,
-        api_football_daily_limit=API_FOOTBALL.daily_limit,
     )
     console.print(panel)
 
@@ -511,7 +510,7 @@ def accuracy(ctx: click.Context, market: str | None, league: str | None) -> None
         console.print("[dim]Run 'footy record' after matches finish to start tracking.[/dim]")
         return
 
-    tracker.display_dashboard(dashboard)
+    tracker.print_dashboard(market=market, league=league)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -630,9 +629,9 @@ def _store_predictions(db, analyses) -> int:
     count = 0
     for analysis in analyses:
         # Build factor breakdown for the calibrator
-        factor_breakdown = {}
+        factor_scores = {}
         for f in analysis.factor_results:
-            factor_breakdown[f.name] = {
+            factor_scores[f.name] = {
                 "score": round(f.score, 4),
                 "confidence": round(f.confidence, 4),
             }
@@ -641,13 +640,15 @@ def _store_predictions(db, analyses) -> int:
             try:
                 db.insert_prediction(
                     match_id=analysis.match_id,
-                    market_code=rec.market_code,
+                    market=rec.market_code,
                     pick=rec.pick,
                     probability=rec.probability,
                     confidence=rec.confidence,
                     implied_odds=rec.implied_odds,
                     rationale=rec.rationale,
-                    factor_breakdown=json.dumps(factor_breakdown),
+                    risk_factors=rec.risk_factors,
+                    supporting_stats=rec.supporting_stats,
+                    factor_scores=factor_scores,
                 )
                 count += 1
             except Exception:

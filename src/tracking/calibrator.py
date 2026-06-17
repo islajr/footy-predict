@@ -241,34 +241,34 @@ class Calibrator:
             rows = conn.execute("""
                 SELECT
                     p.id,
-                    p.market_code,
+                    p.market,
                     p.probability,
                     p.confidence,
-                    p.factor_breakdown,
-                    pr.correct
+                    p.factor_scores,
+                    pr.is_correct
                 FROM predictions p
                 JOIN prediction_results pr ON p.id = pr.prediction_id
-                WHERE pr.correct IS NOT NULL
+                WHERE pr.is_correct IS NOT NULL
             """).fetchall()
 
         for row in rows:
-            factor_breakdown = {}
-            raw_breakdown = row["factor_breakdown"]
-            if raw_breakdown:
+            factor_data = {}
+            raw_scores = row["factor_scores"]
+            if raw_scores:
                 try:
-                    if isinstance(raw_breakdown, str):
-                        factor_breakdown = json.loads(raw_breakdown)
+                    if isinstance(raw_scores, str):
+                        factor_data = json.loads(raw_scores)
                     else:
-                        factor_breakdown = raw_breakdown
+                        factor_data = raw_scores
                 except (json.JSONDecodeError, TypeError):
                     pass
 
             results.append({
                 "prediction_id": row["id"],
-                "correct": bool(row["correct"]),
-                "market_code": row["market_code"],
+                "correct": bool(row["is_correct"]),
+                "market_code": row["market"],
                 "probability": row["probability"],
-                "factors": factor_breakdown,
+                "factors": factor_data,
             })
 
         return results
