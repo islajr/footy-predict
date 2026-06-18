@@ -1,20 +1,27 @@
 # ⚽ Footy Predict
 
-> Data-backed football analysis engine for building winning SportyBet parlays.
+> Local-first football analysis engine & interactive parlay builder with a premium Apple-inspired browser UI.
 
-Footy Predict is a **decision support system** — not an automated bettor. It performs rigorous, transparent analysis of football matches across 12 leagues and recommends picks for 9+ betting markets. You make the final calls; the system provides the data, rationale, and confidence levels.
+Footy Predict is a **decision support system** — not an automated bettor. It performs rigorous, transparent analysis of football matches across 12 leagues and recommends picks for 9+ betting markets. You make the final decisions; the system provides the data, rationale, confidence levels, and interactive slip building tools.
 
 ---
 
 ## ✨ Features
 
-- **12 analysis factors** — recent form, home/away form, scoring patterns, defensive record, H2H, league position, goal timing, momentum, and more
-- **9+ betting markets** — 1X2, double chance, over/under (0.5–3.5), GG/NG, draw no bet, win to nil, win either half, handicaps, team O/U
-- **12 leagues** — PL, La Liga, Serie A, Bundesliga, Ligue 1, Liga Portugal, Eredivisie, Scottish Premiership, Süper Lig, Saudi Pro League, Eliteserien, Belgian Pro League
-- **50-game parlay builder** — ranks picks by probability and diversifies across leagues
-- **Self-improving** — tracks prediction accuracy and calibrates factor weights over time
-- **Dual interface** — Rich CLI for desktop, Telegram bot for mobile
-- **Free data sources** — API-Football (100/day), Football-Data.org (unlimited), football-data.co.uk CSVs
+- **Premium Web UI** — macOS-inspired dark/light theme, glassmorphism card grids, responsive layouts, and pure CSS visualization bars.
+- **Interactive Parlay Builder** — dynamically computes combined decimal odds and win probabilities in real-time. Allows swapping individual picks from alternative match recommendations with amber warning badges (`↓ Replacing HIGH with MEDIUM`) for manual changes.
+- **Parlay History & Outcome Settling** — saves slip drafts, locks active parlays, settles outcomes (recording correct pick counts), and measures simulated flat unit ROI.
+- **Smart Fetch strategy** — spreads API-Football's daily request quotas (100 calls/day free tier) across a weekly cycle:
+  - *Mon–Wed*: Syncs only leagues with midweek fixtures (next 3 days).
+  - *Thu–Fri*: Full sync of all active leagues for weekend preparation.
+  - *Sat–Sun*: Syncs active leagues with matches in the next 24 hours.
+  - *Initial Bootstrap*: Automatically executes a full active sync if the database is empty of matches.
+- **Server-Sent Events (SSE) log stream** — overlays a console box displaying synchronization logs streaming in real-time as background fetch tasks execute.
+- **Results Auto-Recording** — automatically triggers outcomes evaluation immediately upon new fetch arrivals, updating statistics dashboards instantly.
+- **Local-first SQLite settings** — stores credentials, keys, active leagues, and active markets in SQLite (`user_settings`, `user_leagues`, `user_markets`) with a step-by-step Onboarding Setup Wizard in the browser.
+- **12 analysis factors** — recent form, home/away form, scoring patterns, defensive records, head-to-head, standings gap, goal timing, momentum, and more.
+- **9+ betting markets** — 1X2, double chance, over/under (0.5–3.5), GG/NG, draw no bet, win to nil, win either half, handicaps, team O/U.
+- **12 leagues** — Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga Portugal, Eredivisie, Scottish Premiership, Süper Lig, Saudi Pro League, Eliteserien, Belgian Pro League.
 
 ---
 
@@ -23,157 +30,81 @@ Footy Predict is a **decision support system** — not an automated bettor. It p
 ### Prerequisites
 
 - Python 3.11+
-- Free API keys (no payment required):
-  - [API-Football](https://dashboard.api-football.com/register) — primary data source
-  - [Football-Data.org](https://www.football-data.org/client/register) — secondary source
-  - [Telegram Bot](https://t.me/BotFather) *(optional)* — for mobile alerts
+- Free API keys (no payment details required):
+  - [API-Football](https://dashboard.api-football.com/register) — primary data source (100 requests/day free tier)
+  - [Football-Data.org](https://www.football-data.org/client/register) — secondary data source (offloads fixtures/standings query quotas)
 
 ### Installation
 
 ```bash
-# Clone
+# Clone the repository
 git clone <repo-url>
 cd footy-predict
 
-# Virtual environment
+# Create and activate a Python virtual environment
 python3 -m venv .venv
 source .venv/bin/activate
 
-# Install
+# Install the package and development dependencies
 pip install -e ".[dev]"
-
-# Configure
-cp .env.example .env
-nano .env  # Add your API keys
 ```
 
-### First Run
+### First Run & Onboarding
 
-```bash
-# Load historical data (no API calls — downloads CSVs)
-footy load-history
-
-# Fetch current season data
-footy fetch
-
-# Check everything is working
-footy status
-```
+1. Start the local server:
+   ```bash
+   footy serve
+   ```
+2. Open your browser and navigate to `http://localhost:8000`.
+3. Complete the **Onboarding Wizard** to configure your API keys, select active leagues, and toggle active betting markets.
+4. (Optional) Bootstrap historical CSV statistics (downloads football-data.co.uk CSVs to local cache):
+   ```bash
+   footy load-history
+   ```
 
 ---
 
 ## 📋 Usage
 
-### Weekly Parlay Workflow
-
-```bash
-# 1. Refresh data
-footy fetch
-
-# 2. Analyse the matchweek
-footy analyze matchweek
-
-# 3. See high-confidence picks
-footy picks
-
-# 4. Deep-dive on a specific match
-footy analyze match "Arsenal vs Chelsea"
-
-# 5. Get a parlay suggestion
-footy parlay --size 50
-
-# 6. Build your parlay on SportyBet
-
-# 7. After matches finish, record results
-footy record
-
-# 8. Check accuracy
-footy accuracy
-
-# 9. After 100+ predictions, calibrate
-footy calibrate
-```
-
 ### CLI Commands
+
+The CLI is a Click-based entry point providing administrative control and batch scripts:
 
 ```
 footy
-├── fetch [--league SLUG]            Refresh data from APIs
-├── load-history [--league SLUG]     Load historical CSVs
-├── status                           API quota, cache, DB stats
+├── serve                            Launch local FastAPI + Uvicorn server on :8000
+├── fetch [--league SLUG]            Refresh active data from APIs
+├── load-history [--league SLUG]     Load historical CSV files
+├── status                           Check database records size, cache, and API usage
 ├── analyze
-│   ├── matchweek [--league SLUG]    Analyse upcoming matchweek
-│   └── match "Team A vs Team B"     Deep-dive on a specific fixture
-├── picks [--min-confidence LVL]     Filtered recommendations
-├── parlay --size N                  Parlay suggestion
-├── record                           Record results for finished matches
-├── accuracy [--market M] [--lg L]   Accuracy dashboard
-├── calibrate [--reset]              Run weight calibration
-└── bot start                        Launch Telegram bot
-```
-
-### Telegram Bot Commands
-
-```
-/mw         — Analyse next matchweek
-/league PL  — Analyse one league
-/match Arsenal vs Chelsea  — Deep-dive
-/picks      — High-confidence picks
-/accuracy   — Prediction stats
-/quota      — API usage
-/fetch      — Refresh data
-```
-
----
-
-## 🏗️ Architecture
-
-```
-footy-predict/
-├── src/
-│   ├── config.py           Central configuration (leagues, markets, weights)
-│   ├── database.py         SQLite schema + data access layer
-│   ├── main.py             App bootstrap
-│   ├── cli.py              Click CLI interface
-│   ├── fetchers/
-│   │   ├── cache.py        SQLite-backed response cache
-│   │   ├── api_football.py API-Football async client
-│   │   ├── football_data_org.py  FDO async client
-│   │   └── csv_loader.py   Historical CSV loader
-│   ├── analysis/
-│   │   ├── factors.py      12 analysis factor functions
-│   │   ├── engine.py       Orchestrator + aggregation
-│   │   └── markets.py      9 market model functions
-│   ├── reporting/
-│   │   ├── formatter.py    Rich CLI + Telegram formatters
-│   │   └── telegram_bot.py Bot implementation
-│   └── tracking/
-│       ├── recorder.py     Result recording + evaluation
-│       ├── accuracy.py     Accuracy metrics + dashboard
-│       └── calibrator.py   Weight calibration engine
-├── data/
-│   ├── historical/         Downloaded CSV files
-│   └── weights.json        Calibrated factor weights
-└── footy.db                SQLite database
-```
-
-### Data Flow
-
-```
-APIs / CSVs → Fetchers → Database → Analysis Engine → Market Models → Reports
-                                                                         ↓
-                                                              User picks on SportyBet
-                                                                         ↓
-                                                              Record results → Accuracy → Calibrator
-                                                                                              ↓
-                                                                                     Adjusted weights
+│   ├── matchweek [--league SLUG]    Print CLI analysis panels for upcoming matchweek
+│   └── match "Team A vs Team B"     Print deep-dive factor charts for specific fixture
+├── picks [--min-confidence LVL]     Print high-confidence picks table
+├── parlay --size N                  Suggest N-pick parlay via CLI
+├── record                           Evaluate results for finished matches
+├── accuracy [--market M] [--lg L]   Print accuracy analytics dashboard
+└── calibrate [--reset]              Run weight calibration adjusting factor scores
 ```
 
 ---
 
 ## 🔬 Analysis Methodology
 
-### Factor Weights
+### Aggregates Calculation
+
+Aggregated score biases are computed by scaling factor confidence levels dynamically (unreliable or missing dimensions are automatically downweighted):
+
+```
+overall_score = Σ(factor_score × weight × confidence) / Σ(weight × confidence)
+```
+
+For betting markets, actual probabilities blend team historical trends with model-derived contextual parameters:
+
+```
+probability = 0.6 × historical_rate + 0.4 × model_estimate
+```
+
+### 12-Factor Weights
 
 | Factor | Weight | Measures |
 |--------|--------|----------|
@@ -190,71 +121,79 @@ APIs / CSVs → Fetchers → Database → Analysis Engine → Market Models → 
 | Rest Days | 0.5% | Fixture congestion |
 | Rivalry | 0.5% | Derby detection, upset history |
 
-### Confidence-Weighted Aggregation
+---
+
+## 🏗️ File Tree
 
 ```
-overall_score = Σ(factor_score × weight × confidence) / Σ(weight × confidence)
+footy-predict/
+├── pyproject.toml          # Package configurations & dependencies
+├── README.md               # Documentation
+├── footy.db                # SQLite database (gitignored)
+├── data/
+│   ├── historical/         # Local CSV caches (gitignored)
+│   └── weights.json        # Calibrated weights output
+├── src/
+│   ├── config.py           # Configuration specifications fallback
+│   ├── database.py         # SQLite schema & database DAL
+│   ├── main.py             # Server bootstrapper
+│   ├── cli.py              # Click command-line interface commands
+│   ├── fetchers/
+│   │   ├── cache.py        # API responses caching wrapper
+│   │   ├── api_football.py # AP-Football Client (caching + quotas)
+│   │   ├── football_data_org.py # Football-Data.org Client
+│   │   └── csv_loader.py   # Historical CSV loader parser
+│   ├── analysis/
+│   │   ├── factors.py      # 12 factor score calculations
+│   │   ├── engine.py       # Orchestrator & parlay suggestor
+│   │   └── markets.py      # 9 market recommendation models
+│   ├── reporting/
+│   │   └── formatter.py    # CLI rich text printing
+│   ├── tracking/
+│   │   ├── recorder.py     # Matches outcomes evaluation
+│   │   ├── accuracy.py     # Accuracy logs & ROI calculator
+│   │   └── calibrator.py   # Weight adjustments loop
+│   ├── api/
+│   │   ├── app.py          # FastAPI application server setup
+│   │   ├── deps.py         # Dependencies injector
+│   │   ├── schemas.py      # Pydantic validation schemas
+│   │   └── routes/
+│   │       ├── analysis.py # Matchweek/match detail JSON API
+│   │       ├── picks.py    # Filtered recommendations JSON API
+│   │       ├── fetch.py    # Sync scheduler and SSE streams API
+│   │       ├── settings.py # SQLite settings controls JSON API
+│   │       ├── parlay.py   # Parlay slips CRUD JSON API
+│   │       └── views.py    # FastAPI template renderer HTML views
+│   ├── static/
+│   │   └── css/
+│   │       └── style.css   # Main Apple-inspired styles rules
+│   └── templates/
+│       ├── base.html       # Sidebar menu, theme toggle, SSE progress modal
+│       ├── onboarding.html # Onboarding wizard screens
+│       ├── dashboard.html  # Main overview dashboard
+│       ├── analysis.html   # Matches list cards
+│       ├── match_detail.html # Deep-dive factor bars page
+│       ├── picks.html      # Picks table list
+│       ├── parlay.html     # Slips constructor
+│       ├── parlay_history.html # Saved slips settled tracker
+│       ├── settings.html   # Preferences config panels
+│       └── statistics.html # Analytics dashboard charts
+└── tests/                  # Pytest test suite (63 passing tests)
 ```
-
-Factors with low confidence (sparse data) are automatically down-weighted.
-
-### Probability Blending
-
-```
-probability = 0.6 × historical_rate + 0.4 × model_estimate
-```
-
-Anchored to real data, adjusted for match-specific context.
 
 ---
 
-## ⚙️ Data Sources
+## 🧪 Development & Testing
 
-| Source | Role | Limits | Leagues |
-|--------|------|--------|---------|
-| API-Football | Primary (stats, H2H, predictions) | 100 req/day, 10/min | All 12 |
-| Football-Data.org | Secondary (fixtures, standings) | 10 req/min, no daily cap | 7 of 12 |
-| football-data.co.uk | Historical CSVs | Unlimited | 11 of 12 |
-
-The system aggressively caches responses to minimise API usage:
-- Standings: 24 hours
-- Fixtures: 6 hours
-- Team stats: 7 days
-- H2H data: 30 days
-
----
-
-## 📊 Supported Markets
-
-| Market | SportyBet Name | How It Works |
-|--------|---------------|--------------|
-| 1X2 | 1X2 | Outright match result |
-| Double Chance | DC | Two outcomes covered |
-| Over/Under | O/U 0.5–3.5 | Total goals vs line |
-| GG/NG | GG/NG | Both teams score? |
-| Draw No Bet | DNB | Void on draw |
-| Win to Nil | Win to Nil | Win + clean sheet |
-| Win Either Half | Win Either Half | Win at least one half |
-| Handicap | Handicap | Goal advantage applied |
-| Team O/U | Home/Away O/U | Individual team goals |
-
----
-
-## 🧪 Development
+Run all unit and integration tests:
 
 ```bash
-# Install with dev dependencies
-pip install -e ".[dev]"
-
-# Run tests
-python -m pytest tests/ -v
-
-# Run with coverage
-python -m pytest tests/ --cov=src --cov-report=term-missing
+# Run pytest
+.venv/bin/pytest tests/ -v
 ```
 
 ---
 
 ## 📝 License
 
-This project is for personal use. Not affiliated with SportyBet.
+This project is for personal use. Not affiliated with SportyBet or any API provider.
