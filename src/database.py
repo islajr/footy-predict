@@ -238,6 +238,29 @@ CREATE TABLE IF NOT EXISTS api_usage (
     requests_limit  INTEGER,
     UNIQUE(source, date)
 );
+
+-- User settings (preference storage)
+CREATE TABLE IF NOT EXISTS user_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User active/disabled leagues
+CREATE TABLE IF NOT EXISTS user_leagues (
+    slug          TEXT PRIMARY KEY,
+    enabled       INTEGER DEFAULT 1,
+    display_order INTEGER DEFAULT 0
+);
+
+-- User active/disabled markets and floor
+CREATE TABLE IF NOT EXISTS user_markets (
+    market_code     TEXT PRIMARY KEY,
+    display_name    TEXT,
+    enabled         INTEGER DEFAULT 1,
+    min_probability REAL DEFAULT 0.55,
+    display_order   INTEGER DEFAULT 0
+);
 """
 
 
@@ -370,6 +393,8 @@ class Database:
                 csv_code=cfg.csv_code,
                 tier=cfg.tier,
             )
+
+        self.seed_user_defaults()
 
     # ═══════════════════════════════════════════════════════
     #  Teams
@@ -1226,3 +1251,141 @@ class Database:
         """Get remaining API calls for today."""
         usage = self.get_api_usage_today(source)
         return max(0, daily_limit - usage["requests_made"])
+
+    # ═══════════════════════════════════════════════════════
+    #  User Preferences & Settings
+    # ═══════════════════════════════════════════════════════
+
+    def get_setting(self, key: str) -> str | None:
+        """Retrieve a key's value from user_settings."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM user_settings WHERE key=?",
+                (key,)
+            ).fetchone()
+            return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Insert or update a key-value pair in user_settings."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_settings (key, value, updated_at)
+                VALUES (?, ?, datetime('now'))
+                ON CONFLICT(key) DO UPDATE SET
+                    value=excluded.value,
+                    updated_at=datetime('now')
+                """,
+                (key, str(value))
+            )
+
+    def get_enabled_leagues(self) -> list[str]:
+        """Return the slugs of all enabled user leagues."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT slug FROM user_leagues WHERE enabled = 1 ORDER BY display_order ASC, slug ASC"
+            ).fetchall()
+            return [r["slug"] for r in rows]
+
+    def get_league_preferences(self) -> list[dict[str, Any]]:
+        """Get all user leagues with their enabled and order preferences."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT l.name, l.country, l.slug, 
+                       COALESCE(ul.enabled, 1) AS enabled, 
+                       COALESCE(ul.display_order, 0) AS display_order
+                FROM leagues l
+                LEFT JOIN user_leagues ul ON l.slug = ul.slug
+                ORDER BY display_order ASC, name ASC
+                """
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def set_league_preference(self, slug: str, enabled: int, display_order: int) -> None:
+        """Save a user's active status and sorting order for a league."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_leagues (slug, enabled, display_order)
+                VALUES (?, ?, ?)
+                ON CONFLICT(slug) DO UPDATE SET
+                    enabled=excluded.enabled,
+                    display_order=excluded.display_order
+                """,
+                (slug, enabled, display_order)
+            )
+
+    def get_enabled_markets(self) -> list[dict[str, Any]]:
+        """Return all enabled user markets with their code and floor."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT market_code, min_probability FROM user_markets WHERE enabled = 1 ORDER BY display_order ASC"
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def get_market_preferences(self) -> list[dict[str, Any]]:
+        """Get all user markets with active states and sliders."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM user_markets ORDER BY display_order ASC, market_code ASC"
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
+    def set_market_preference(self, market_code: str, enabled: int, min_probability: float, display_order: int) -> None:
+        """Save active states, custom name, or confidence floors for a market."""
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO user_markets (market_code, enabled, min_probability, display_order)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(market_code) DO UPDATE SET
+                    enabled=excluded.enabled,
+                    min_probability=excluded.min_probability,
+                    display_order=excluded.display_order
+                """,
+                (market_code, enabled, min_probability, display_order)
+            )
+
+    def seed_user_defaults(self) -> None:
+        """Seed default user settings, leagues, and markets preferences."""
+        from src.config import LEAGUES as LEAGUE_CONFIGS, MARKETS as MARKET_CONFIGS
+
+        # Seed onboarding defaults
+        if self.get_setting("onboarding_complete") is None:
+            self.set_setting("onboarding_complete", "0")
+        if self.get_setting("theme") is None:
+            self.set_setting("theme", "dark")
+        if self.get_setting("fetch_strategy") is None:
+            self.set_setting("fetch_strategy", "full")
+
+        # Seed API key defaults from environment if present
+        import os
+        if self.get_setting("api_football_key") is None:
+            self.set_setting("api_football_key", os.getenv("API_FOOTBALL_KEY", ""))
+        if self.get_setting("football_data_org_key") is None:
+            self.set_setting("football_data_org_key", os.getenv("FOOTBALL_DATA_ORG_KEY", ""))
+
+        # Seed leagues as enabled by default
+        for i, slug in enumerate(LEAGUE_CONFIGS.keys()):
+            with self._connect() as conn:
+                exists = conn.execute("SELECT 1 FROM user_leagues WHERE slug=?", (slug,)).fetchone()
+                if not exists:
+                    conn.execute(
+                        "INSERT INTO user_leagues (slug, enabled, display_order) VALUES (?, 1, ?)",
+                        (slug, i)
+                    )
+
+        # Seed markets as enabled by default with 0.55 threshold
+        for i, (market_code, market_def) in enumerate(MARKET_CONFIGS.items()):
+            with self._connect() as conn:
+                exists = conn.execute("SELECT 1 FROM user_markets WHERE market_code=?", (market_code,)).fetchone()
+                if not exists:
+                    conn.execute(
+                        """
+                        INSERT INTO user_markets (market_code, display_name, enabled, min_probability, display_order)
+                        VALUES (?, ?, 1, 0.55, ?)
+                        """,
+                        (market_code, market_def.name, i)
+                    )
+

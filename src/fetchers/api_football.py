@@ -90,10 +90,11 @@ class APIFootballClient:
     # ── Context manager ───────────────────────────────────────
 
     async def __aenter__(self) -> APIFootballClient:
+        key = self.db.get_setting("api_football_key") or API_FOOTBALL.key
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "x-apisports-key": API_FOOTBALL.key,
+                "x-apisports-key": key,
                 "Accept": "application/json",
             },
             timeout=30.0,

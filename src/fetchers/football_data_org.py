@@ -74,10 +74,11 @@ class FootballDataOrgClient:
     # ── Context manager ───────────────────────────────────────
 
     async def __aenter__(self) -> FootballDataOrgClient:
+        key = self.db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "X-Auth-Token": FOOTBALL_DATA_ORG.key,
+                "X-Auth-Token": key,
                 "Accept": "application/json",
             },
             timeout=30.0,

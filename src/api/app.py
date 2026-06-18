@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from src.main import init_app
-from src.api.routes import analysis, picks, fetch, accuracy
+from src.api.routes import analysis, picks, fetch, accuracy, settings
 
 logger = logging.getLogger("footy.api")
 
@@ -76,6 +76,7 @@ app.include_router(analysis.router, prefix="/api/v1")
 app.include_router(picks.router, prefix="/api/v1")
 app.include_router(fetch.router, prefix="/api/v1")
 app.include_router(accuracy.router, prefix="/api/v1")
+app.include_router(settings.router, prefix="/api/v1")
 
 
 @app.get("/")

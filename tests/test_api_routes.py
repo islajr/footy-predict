@@ -71,3 +71,63 @@ def test_calibrate_reset(client):
     assert response.status_code == 200
     data = response.json()
     assert "Weights successfully reset" in data["message"]
+
+def test_settings_retrieval_and_update(client):
+    # Retrieve default settings
+    response = client.get("/api/v1/settings")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["theme"] == "dark"
+    assert data["onboarding_complete"] is False
+
+    # Update settings
+    payload = {
+        "api_football_key": "test-football-key",
+        "football_data_org_key": "test-fdo-key",
+        "theme": "light",
+        "onboarding_complete": True,
+        "fetch_strategy": "smart"
+    }
+    update_resp = client.post("/api/v1/settings", json=payload)
+    assert update_resp.status_code == 200
+    updated_data = update_resp.json()
+    assert updated_data["theme"] == "light"
+    assert updated_data["onboarding_complete"] is True
+    assert updated_data["api_football_key"] == "test-football-key"
+
+def test_leagues_preferences(client):
+    # Retrieve leagues
+    response = client.get("/api/v1/settings/leagues")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 12
+    assert any(lg["slug"] == "premier-league" for lg in data)
+
+    # Disable a league
+    data[0]["enabled"] = False
+    update_resp = client.post("/api/v1/settings/leagues", json=data)
+    assert update_resp.status_code == 200
+    updated_data = update_resp.json()
+    assert updated_data[0]["enabled"] is False
+
+def test_markets_preferences(client):
+    # Retrieve markets
+    response = client.get("/api/v1/settings/markets")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) >= 9
+
+    # Disable double chance and set probability floor
+    for m in data:
+        if m["market_code"] == "double-chance":
+            m["enabled"] = False
+            m["min_probability"] = 0.65
+
+    update_resp = client.post("/api/v1/settings/markets", json=data)
+    assert update_resp.status_code == 200
+    updated_data = update_resp.json()
+    for m in updated_data:
+        if m["market_code"] == "double-chance":
+            assert m["enabled"] is False
+            assert m["min_probability"] == 0.65
+
