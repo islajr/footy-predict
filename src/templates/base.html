@@ -11,12 +11,18 @@
     <div class="app-container">
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
-            <div class="logo-container">
+            <a href="/" class="logo-container" style="display: flex; align-items: center; gap: 12px; margin-bottom: 32px; padding-left: 8px; text-decoration: none;">
                 <span class="logo-emoji">⚽</span>
-                <span class="logo-text">Footy Predict</span>
-            </div>
+                <span class="logo-text" style="color: var(--text-primary);">Footy Predict</span>
+            </a>
             
             <nav class="nav-menu">
+                <li class="nav-item {% if active_page == 'home' %}active{% endif %}">
+                    <a href="/">
+                        <span class="nav-icon">🏠</span>
+                        <span>Home</span>
+                    </a>
+                </li>
                 <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
                     <a href="/dashboard">
                         <span class="nav-icon">⚡</span>
@@ -75,11 +81,6 @@
                     <div class="quota-badge {% if quota.remaining < 20 %}quota-danger{% elif quota.remaining < 50 %}quota-warning{% else %}quota-ok{% endif %}">
                         <span>Quota: {{ quota.remaining }} remaining today</span>
                     </div>
-                    
-                    <!-- Theme Toggle -->
-                    <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
-                        🌓
-                    </button>
                 </div>
             </header>
 

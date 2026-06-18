@@ -4,9 +4,19 @@
 {% block header_title %}⚡ Dashboard{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 32px;">
-    <h1>Welcome back, Bettor!</h1>
-    <p class="subtitle">Data-backed analysis & parlay builder for Europe's top leagues.</p>
+<div style="margin-bottom: 32px; display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+    <div>
+        <h1>Welcome back, Bettor!</h1>
+        <p class="subtitle">Data-backed analysis & parlay builder for Europe's top leagues.</p>
+    </div>
+    
+    <!-- Stationary Theme Toggle Switch -->
+    <div style="background-color: var(--bg-surface); border: 1px solid var(--border-color); padding: 8px 14px; border-radius: var(--border-radius-lg); display: flex; align-items: center; gap: 10px; box-shadow: var(--card-shadow);">
+        <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Theme</span>
+        <button onclick="toggleTheme()" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; border-radius: 10px; display: flex; align-items: center; gap: 6px; cursor: pointer;">
+            <span>🌓 Toggle</span>
+        </button>
+    </div>
 </div>
 
 <!-- Quick Actions Strip -->

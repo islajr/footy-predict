@@ -119,6 +119,35 @@ def show_onboarding(request: Request, db: Database = Depends(get_db)):
 
 
 @router.get("/", response_class=HTMLResponse)
+def show_home(request: Request, db: Database = Depends(get_db)):
+    """Render the main welcome homepage."""
+    onboarding_complete = (db.get_setting("onboarding_complete") == "1")
+    if not onboarding_complete:
+        return RedirectResponse(url="/onboarding")
+
+    context = get_view_context(request, db, "home")
+
+    # Fetch database summary statistics for homepage metadata
+    leagues = db.get_all_leagues()
+    with db._connect() as conn:
+        teams_count = conn.execute("SELECT COUNT(*) FROM teams").fetchone()[0]
+        matches_count = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+        predictions_count = conn.execute("SELECT COUNT(*) FROM predictions").fetchone()[0]
+
+    db_stats = {
+        "leagues_count": len(leagues),
+        "teams_count": teams_count,
+        "matches_count": matches_count,
+        "predictions_count": predictions_count,
+    }
+
+    context.update({
+        "stats": db_stats,
+    })
+
+    return templates.TemplateResponse(request=request, name="home.html", context=context)
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def show_dashboard(request: Request, db: Database = Depends(get_db)):
     """Render the main dashboard overview page."""
