@@ -81,6 +81,11 @@
                     <div class="quota-badge {% if quota.remaining < 20 %}quota-danger{% elif quota.remaining < 50 %}quota-warning{% else %}quota-ok{% endif %}">
                         <span>Quota: {{ quota.remaining }} remaining today</span>
                     </div>
+
+                    <!-- Theme Toggle Switch -->
+                    <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme" style="background-color: var(--bg-surface-hover); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: var(--transition-smooth); box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                        <span>🌓 Toggle Theme</span>
+                    </button>
                 </div>
             </header>
 
