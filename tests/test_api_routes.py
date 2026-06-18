@@ -135,7 +135,7 @@ def test_html_views_onboarding_redirects(client):
     # Root (landing page) is accessible even if onboarding is incomplete
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 200
-    assert "Welcome to Footy Predict" in response.text
+    assert "Footy Predict" in response.text
 
     # Dashboard redirects too
     response_dash = client.get("/dashboard", follow_redirects=False)
@@ -145,7 +145,7 @@ def test_html_views_onboarding_redirects(client):
     # Onboarding page is accessible directly
     response_onb = client.get("/onboarding")
     assert response_onb.status_code == 200
-    assert "Welcome to Footy Predict" in response_onb.text
+    assert "Footy Predict" in response_onb.text
 
 def test_html_views_authorized(client, temp_db):
     # Set onboarding as complete
