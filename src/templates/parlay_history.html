@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block title %}Parlay History & Settle — Footy Predict{% endblock %}
+{% block header_title %}🎲 Parlay History{% endblock %}
+
+{% block content %}
+<div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+    <div>
+        <h1>Parlay History & Settle</h1>
+        <p class="subtitle">Track saved slips, settle outcomes, and measure historical ROI.</p>
+    </div>
+    <div>
+        <a href="/parlay" class="btn btn-primary">
+            + Build New Parlay
+        </a>
+    </div>
+</div>
+
+<!-- Parlay History Summary Stats -->
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
+    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
+        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Total Slips</div>
+        <div style="font-size: 28px; font-weight: 700; color: var(--text-primary);">{{ parlays|length }}</div>
+    </div>
+    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
+        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Active / Submitted</div>
+        <div style="font-size: 28px; font-weight: 700; color: var(--accent-blue);">
+            {{ parlays|selectattr('status', 'equalto', 'submitted')|list|length }}
+        </div>
+    </div>
+    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
+        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Won / Lost</div>
+        <div style="font-size: 28px; font-weight: 700; color: var(--accent-emerald);">
+            {{ parlays|selectattr('status', 'equalto', 'won')|list|length }}
+            <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">/</span>
+            <span style="color: var(--accent-coral);">{{ parlays|selectattr('status', 'equalto', 'lost')|list|length }}</span>
+        </div>
+    </div>
+    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
+        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Simulated Net ROI</div>
+        {% set ns = namespace(net_roi=0.0) %}
+        {% for p in parlays %}
+            {% if p.status == 'won' %}
+                {% set ns.net_roi = ns.net_roi + (p.combined_odds - 1.0) %}
+            {% elif p.status == 'lost' %}
+                {% set ns.net_roi = ns.net_roi - 1.0 %}
+            {% endif %}
+        {% endfor %}
+        <div style="font-size: 28px; font-weight: 700; color: {% if ns.net_roi > 0 %}var(--accent-emerald){% elif ns.net_roi < 0 %}var(--accent-coral){% else %}var(--text-primary){% endif %};">
+            {% if ns.net_roi > 0 %}+{% endif %}{{ "%.2f"|format(ns.net_roi) }} u
+        </div>
+    </div>
+</div>
+
+<!-- Parlays Table -->
+<div class="card" style="padding: 0; overflow: hidden;">
+    {% if parlays %}
+    <table class="styled-table">
+        <thead>
+            <tr>
+                <th>Created</th>
+                <th>Name / Strategy</th>
+                <th style="text-align: right;">Picks</th>
+                <th style="text-align: right;">Odds</th>
+                <th style="text-align: right;">Est. Prob</th>
+                <th>Status</th>
+                <th style="text-align: right;">Correct Ratio</th>
+                <th style="text-align: right;">Flat Payout</th>
+                <th style="text-align: right; width: 220px;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in parlays %}
+            <tr style="cursor: pointer;" id="row-{{ p.id }}" onclick="togglePicksDetails({{ p.id }})">
+                <td style="color: var(--text-secondary); font-size: 13px;">{{ p.created_at }}</td>
+                <td>
+                    <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">{{ p.name }}</div>
+                    {% if p.notes %}
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px; font-style: italic; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        {{ p.notes }}
+                    </div>
+                    {% endif %}
+                </td>
+                <td style="text-align: right; font-weight: 600;">{{ p.size }}</td>
+                <td style="text-align: right; color: var(--accent-blue); font-weight: 600;">@ {{ "%.2f"|format(p.combined_odds) }}</td>
+                <td style="text-align: right; font-weight: 600;">{{ "%.2f"|format(p.combined_probability * 100) }}%</td>
+                <td>
+                    <span class="badge {% if p.status == 'won' %}badge-high{% elif p.status == 'lost' %}badge-low{% elif p.status == 'submitted' %}badge-medium{% else %}badge-draft{% endif %}">
+                        {{ p.status }}
+                    </span>
+                </td>
+                <td style="text-align: right; font-weight: 600;">
+                    {% if p.correct_count is not none %}
+                        {{ p.correct_count }} / {{ p.size }}
+                    {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                </td>
+                <td style="text-align: right; font-weight: 700; color: {% if p.status == 'won' %}var(--accent-emerald){% elif p.status == 'lost' %}var(--accent-coral){% else %}var(--text-secondary){% endif %};">
+                    {% if p.status == 'won' %}
+                        +{{ "%.2f"|format(p.combined_odds - 1.0) }} u
+                    {% elif p.status == 'lost' %}
+                        -1.00 u
+                    {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                    {% endif %}
+                </td>
+                <td style="text-align: right;" onclick="event.stopPropagation()">
+                    <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+                        {% if p.status == 'draft' %}
+                            <button onclick="submitParlay({{ p.id }})" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-blue); border-color: var(--accent-blue-alpha);">
+                                Submit
+                            </button>
+                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text" style="color: var(--accent-coral); font-size: 11px; padding: 4px 8px;">
+                                Delete
+                            </button>
+                        {% elif p.status == 'submitted' %}
+                            <button onclick="showSettleForm({{ p.id }}, {{ p.size }})" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-emerald); border-color: var(--accent-emerald-alpha);">
+                                Settle Outcome
+                            </button>
+                        {% else %}
+                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text" style="color: var(--accent-coral); font-size: 11px; padding: 4px 8px;">
+                                Delete
+                            </button>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            <!-- Expanded picks details row -->
+            <tr id="details-{{ p.id }}" style="display: none; background-color: var(--bg-surface-hover);" onclick="event.stopPropagation()">
+                <td colspan="9" style="padding: 16px 24px; border-bottom: 1px solid var(--border-color);">
+                    <div style="margin-bottom: 12px; font-weight: 600; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Picks Details for: {{ p.name }}</div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 8px; max-width: 800px;">
+                        {% for item in p.picks %}
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background-color: var(--bg-surface); border-radius: var(--border-radius-md); border: 1px solid var(--border-color);">
+                            <div>
+                                <span class="badge" style="background-color: var(--bg-elevated); color: var(--text-secondary); font-size: 8px; padding: 1px 4px; margin-right: 6px;">{{ item.league }}</span>
+                                <span style="font-weight: 600; font-size: 13px;">{{ item.home_team }} vs {{ item.away_team }}</span>
+                            </div>
+                            <div style="display: flex; gap: 16px; font-size: 13px; align-items: center;">
+                                <span style="font-weight: 600; color: var(--accent-blue); font-size: 12px;">{{ item.market_name }}: {{ item.pick }}</span>
+                                <span style="color: var(--text-secondary);">{{ (item.probability * 100)|int }}%</span>
+                                <span style="color: var(--accent-blue); font-weight: 600;">@ {{ "%.2f"|format(item.implied_odds) }}</span>
+                                <span class="badge {% if item.confidence == 'HIGH' %}badge-high{% elif item.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}" style="font-size: 8px; padding: 1px 4px;">{{ item.confidence }}</span>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div style="text-align: center; padding: 60px 0; color: var(--text-secondary);">
+        <p style="font-size: 16px; margin-bottom: 8px;">No saved parlay slips found.</p>
+        <p style="font-size: 13px;">Use the <a href="/parlay" style="text-decoration: underline;">Parlay Builder</a> to create one.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Settle Slip Modal / Inline Popup -->
+<div id="settle-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); z-index: 1000; align-items: center; justify-content: center;">
+    <div class="card" style="width: 100%; max-width: 400px; padding: 24px; position: relative;">
+        <h3 style="margin-bottom: 16px;">Settle Parlay Outcome</h3>
+        
+        <input type="hidden" id="settle-parlay-id">
+        
+        <div class="form-group">
+            <label for="settle-correct-count">Correct Picks Count (Out of <span id="settle-max-picks">0</span>)</label>
+            <input type="number" id="settle-correct-count" class="form-input" min="0" value="0">
+        </div>
+
+        <div class="form-group">
+            <label>Final Status</label>
+            <div style="display: flex; gap: 16px; margin-top: 8px;">
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="settle-status" value="won" checked style="width: 16px; height: 16px;">
+                    <span style="color: var(--accent-emerald); font-weight: 600;">Won</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                    <input type="radio" name="settle-status" value="lost" style="width: 16px; height: 16px;">
+                    <span style="color: var(--accent-coral); font-weight: 600;">Lost</span>
+                </label>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+            <button onclick="closeSettleModal()" class="btn btn-secondary" style="padding: 8px 16px;">Cancel</button>
+            <button onclick="submitSettle()" class="btn btn-primary" style="padding: 8px 16px;">Confirm Settle</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Expand/Collapse Picks list inside table rows
+    function togglePicksDetails(parlayId) {
+        const detailsRow = document.getElementById(`details-${parlayId}`);
+        if (detailsRow.style.display === "none") {
+            detailsRow.style.display = "table-row";
+        } else {
+            detailsRow.style.display = "none";
+        }
+    }
+
+    // Lock and submit a parlay slip (marks as active)
+    function submitParlay(parlayId) {
+        if (confirm("Are you sure you want to lock and submit this parlay slip? This marks it as an active bet.")) {
+            fetch(`/api/v1/parlay/${parlayId}/submit`, { method: 'POST' })
+                .then(res => {
+                    if (!res.ok) throw new Error("Could not submit parlay.");
+                    return res.json();
+                })
+                .then(data => {
+                    alert("Parlay slip marked as submitted!");
+                    window.location.reload();
+                })
+                .catch(err => alert("Error submitting: " + err.message));
+        }
+    }
+
+    // Delete a parlay slip
+    function deleteParlay(parlayId) {
+        if (confirm("Are you sure you want to permanently delete this parlay slip?")) {
+            fetch(`/api/v1/parlay/${parlayId}`, { method: 'DELETE' })
+                .then(res => {
+                    if (!res.ok) throw new Error("Could not delete parlay.");
+                    return res.json();
+                })
+                .then(data => {
+                    alert("Parlay slip deleted.");
+                    window.location.reload();
+                })
+                .catch(err => alert("Error deleting: " + err.message));
+        }
+    }
+
+    // Settle flow
+    function showSettleForm(parlayId, maxPicks) {
+        document.getElementById('settle-parlay-id').value = parlayId;
+        document.getElementById('settle-max-picks').innerText = maxPicks;
+        
+        const countInput = document.getElementById('settle-correct-count');
+        countInput.max = maxPicks;
+        countInput.value = maxPicks; // default to max
+
+        // Show modal
+        const modal = document.getElementById('settle-modal');
+        modal.style.display = "flex";
+    }
+
+    function closeSettleModal() {
+        const modal = document.getElementById('settle-modal');
+        modal.style.display = "none";
+    }
+
+    function submitSettle() {
+        const parlayId = document.getElementById('settle-parlay-id').value;
+        const correctCount = parseInt(document.getElementById('settle-correct-count').value);
+        const maxPicks = parseInt(document.getElementById('settle-max-picks').innerText);
+        
+        const statusSelected = document.querySelector('input[name="settle-status"]:checked').value;
+
+        if (isNaN(correctCount) || correctCount < 0 || correctCount > maxPicks) {
+            alert(`Please enter a valid correct count between 0 and ${maxPicks}`);
+            return;
+        }
+
+        fetch(`/api/v1/parlay/${parlayId}/settle?status=${statusSelected}&correct_count=${correctCount}`, {
+            method: 'POST'
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Could not settle parlay.");
+            return res.json();
+        })
+        .then(data => {
+            alert("Parlay settled successfully!");
+            closeSettleModal();
+            window.location.reload();
+        })
+        .catch(err => alert("Error settling: " + err.message));
+    }
+</script>
+{% endblock %}

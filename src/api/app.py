@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.main import init_app
-from src.api.routes import analysis, picks, fetch, accuracy, settings, views
+from src.api.routes import analysis, picks, fetch, accuracy, settings, views, parlay
 
 logger = logging.getLogger("footy.api")
 
@@ -75,6 +75,7 @@ app.include_router(picks.router, prefix="/api/v1")
 app.include_router(fetch.router, prefix="/api/v1")
 app.include_router(accuracy.router, prefix="/api/v1")
 app.include_router(settings.router, prefix="/api/v1")
+app.include_router(parlay.router, prefix="/api/v1")
 
 
 app.include_router(views.router)

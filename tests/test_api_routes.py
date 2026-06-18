@@ -171,4 +171,89 @@ def test_html_views_authorized(client, temp_db):
     assert response_settings.status_code == 200
     assert "App Preferences & Settings" in response_settings.text
 
+    # Accessing parlay builder should work
+    response_parlay = client.get("/parlay")
+    assert response_parlay.status_code == 200
+    assert "Interactive Parlay Builder" in response_parlay.text
+
+    # Accessing parlay history should work
+    response_history = client.get("/parlay/history")
+    assert response_history.status_code == 200
+    assert "Parlay History & Settle" in response_history.text
+
+
+def test_parlay_api_flow(client):
+    # Save a draft parlay
+    payload = {
+        "name": "Test Accumulator",
+        "size": 2,
+        "picks": [
+            {
+                "match_id": 1,
+                "home_team": "Team A",
+                "away_team": "Team B",
+                "league": "Premier League",
+                "market_code": "1x2",
+                "market_name": "Full Time Result",
+                "pick": "Home",
+                "probability": 0.70,
+                "confidence": "MEDIUM",
+                "implied_odds": 1.43
+            },
+            {
+                "match_id": 2,
+                "home_team": "Team C",
+                "away_team": "Team D",
+                "league": "La Liga",
+                "market_code": "gg-ng",
+                "market_name": "Both Teams To Score",
+                "pick": "Yes",
+                "probability": 0.65,
+                "confidence": "MEDIUM",
+                "implied_odds": 1.54
+            }
+        ],
+        "status": "draft",
+        "notes": "Testing API flow"
+    }
+    response = client.post("/api/v1/parlay", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Test Accumulator"
+    assert data["status"] == "draft"
+    assert len(data["picks"]) == 2
+    parlay_id = data["id"]
+    assert parlay_id is not None
+
+    # Retrieve all parlays
+    get_all_resp = client.get("/api/v1/parlay")
+    assert get_all_resp.status_code == 200
+    all_parlays = get_all_resp.json()
+    assert len(all_parlays) >= 1
+    assert any(p["id"] == parlay_id for p in all_parlays)
+
+    # Lock and Submit
+    submit_resp = client.post(f"/api/v1/parlay/{parlay_id}/submit")
+    assert submit_resp.status_code == 200
+    submit_data = submit_resp.json()
+    assert submit_data["status"] == "submitted"
+    assert submit_data["submitted_at"] is not None
+
+    # Settle outcome
+    settle_resp = client.post(f"/api/v1/parlay/{parlay_id}/settle?status=won&correct_count=2")
+    assert settle_resp.status_code == 200
+    settle_data = settle_resp.json()
+    assert settle_data["status"] == "won"
+    assert settle_data["correct_count"] == 2
+
+    # Delete
+    del_resp = client.delete(f"/api/v1/parlay/{parlay_id}")
+    assert del_resp.status_code == 200
+    assert "deleted" in del_resp.json()["message"]
+
+    # Verify deleted
+    get_all_resp_after = client.get("/api/v1/parlay")
+    assert not any(p["id"] == parlay_id for p in get_all_resp_after.json())
+
+
 

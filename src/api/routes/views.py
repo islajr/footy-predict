@@ -446,3 +446,132 @@ def show_settings(request: Request, db: Database = Depends(get_db)):
     })
 
     return templates.TemplateResponse(request=request, name="settings.html", context=context)
+
+
+@router.get("/parlay", response_class=HTMLResponse)
+def show_parlay(
+    request: Request,
+    size: int = Query(50, description="Target parlay size"),
+    min_confidence: str = Query("MEDIUM", description="Minimum confidence"),
+    db: Database = Depends(get_db),
+    engine: AnalysisEngine = Depends(get_engine),
+):
+    """Render the Parlay Builder page."""
+    onboarding_complete = (db.get_setting("onboarding_complete") == "1")
+    if not onboarding_complete:
+        return RedirectResponse(url="/onboarding")
+
+    context = get_view_context(request, db, "parlay")
+
+    from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    to_date = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
+
+    analyses = engine.analyze_matchweek(from_date=from_date, to_date=to_date)
+    
+    # Filter analyses by active/enabled leagues
+    active_leagues_prefs = db.get_league_preferences()
+    enabled_slugs = {lg["slug"] for lg in active_leagues_prefs if lg["enabled"]}
+    league_slug_map = {cfg.name: slug for slug, cfg in LEAGUES.items()}
+    analyses = [a for a in analyses if league_slug_map.get(a.league) in enabled_slugs]
+
+    suggestions = engine.suggest_parlay(analyses, size=size, min_confidence=min_confidence.upper())
+
+    # Format suggested picks
+    suggested_picks = []
+    for a, rec in suggestions:
+        suggested_picks.append({
+            "match_id": a.match_id,
+            "home_team": a.home_team,
+            "away_team": a.away_team,
+            "league": a.league,
+            "market_code": rec.market_code,
+            "market_name": rec.market_name,
+            "pick": rec.pick,
+            "probability": rec.probability,
+            "confidence": rec.confidence,
+            "implied_odds": rec.implied_odds
+        })
+
+    # Available picks are ALL recommendations from the analyses that match the active leagues
+    # and have at least the min_confidence.
+    available_picks = []
+    level_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    min_level = level_order.get(min_confidence.upper(), 1)
+    
+    for a in analyses:
+        for rec in a.market_recommendations:
+            if level_order.get(rec.confidence, 2) <= min_level:
+                available_picks.append({
+                    "match_id": a.match_id,
+                    "home_team": a.home_team,
+                    "away_team": a.away_team,
+                    "league": a.league,
+                    "market_code": rec.market_code,
+                    "market_name": rec.market_name,
+                    "pick": rec.pick,
+                    "probability": rec.probability,
+                    "confidence": rec.confidence,
+                    "implied_odds": rec.implied_odds
+                })
+
+    # Sort available picks by probability descending
+    available_picks.sort(key=lambda x: -x["probability"])
+
+    context.update({
+        "suggested_picks": suggested_picks,
+        "available_picks": available_picks,
+        "size": size,
+        "min_confidence": min_confidence,
+    })
+
+    return templates.TemplateResponse(request=request, name="parlay.html", context=context)
+
+
+@router.get("/parlay/history", response_class=HTMLResponse)
+def show_parlay_history(
+    request: Request,
+    db: Database = Depends(get_db),
+):
+    """Render the Parlay History page."""
+    onboarding_complete = (db.get_setting("onboarding_complete") == "1")
+    if not onboarding_complete:
+        return RedirectResponse(url="/onboarding")
+
+    context = get_view_context(request, db, "parlay")
+
+    parlays = db.get_all_parlays()
+
+    formatted_parlays = []
+    for p in parlays:
+        combined_prob = 1.0
+        combined_odds = 1.0
+        for item in p["picks"]:
+            combined_prob *= item.get("probability", 1.0)
+            combined_odds *= item.get("implied_odds", 1.0)
+
+        roi = None
+        if p["status"] == "won":
+            roi = combined_odds - 1.0
+        elif p["status"] == "lost":
+            roi = -1.0
+
+        formatted_parlays.append({
+            "id": p["id"],
+            "name": p["name"],
+            "created_at": p["created_at"][:16].replace("T", " ") if p["created_at"] else "",
+            "submitted_at": p["submitted_at"][:16].replace("T", " ") if p["submitted_at"] else None,
+            "size": p["size"],
+            "picks": p["picks"],
+            "status": p["status"],
+            "correct_count": p["correct_count"],
+            "notes": p["notes"],
+            "combined_probability": combined_prob,
+            "combined_odds": combined_odds,
+            "roi": roi,
+        })
+
+    context.update({
+        "parlays": formatted_parlays,
+    })
+
+    return templates.TemplateResponse(request=request, name="parlay_history.html", context=context)

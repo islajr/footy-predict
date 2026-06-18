@@ -1,0 +1,422 @@
+{% extends "base.html" %}
+
+{% block title %}Parlay Builder — Footy Predict{% endblock %}
+{% block header_title %}🎲 Parlay Builder{% endblock %}
+
+{% block content %}
+<div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+    <div>
+        <h1>Interactive Parlay Builder</h1>
+        <p class="subtitle">Draft your accumulator slip. The engine suggests options, you refine and decide.</p>
+    </div>
+    <div>
+        <a href="/parlay/history" class="btn btn-secondary">
+            📋 View Saved Parlays
+        </a>
+    </div>
+</div>
+
+<div class="parlay-cols" style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px;">
+    
+    <!-- Left Column: Available Picks -->
+    <div class="card" style="display: flex; flex-direction: column; height: fit-content; max-height: 80vh;">
+        <h2 class="card-title" style="margin-bottom: 16px;">
+            <span>🔍 Available Recommendations</span>
+            <span class="badge badge-medium" style="font-size: 10px;" id="available-count">0 options</span>
+        </h2>
+        
+        <!-- Search and filters -->
+        <div style="margin-bottom: 16px; display: flex; gap: 8px;">
+            <input type="text" id="pick-search" class="form-input" placeholder="Search by team, league..." oninput="filterAvailablePicks()" style="padding: 8px 12px; font-size: 13px;">
+        </div>
+
+        <div id="available-picks-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; max-height: 55vh;">
+            <!-- Rendered dynamically -->
+        </div>
+    </div>
+
+    <!-- Right Column: Current Slip -->
+    <div class="card" style="display: flex; flex-direction: column; height: fit-content;">
+        <h2 class="card-title" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+            <span>🎟️ Parlay Slip</span>
+            <button onclick="clearSlip()" class="btn btn-text" style="font-size: 12px; color: var(--accent-coral);">Clear Slip</button>
+        </h2>
+
+        <!-- Running Stats Panel -->
+        <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; background-color: var(--bg-surface-hover); border-radius: var(--border-radius-lg); padding: 16px; margin-bottom: 20px; border: 1px solid var(--border-color);">
+            <div style="text-align: center;">
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Picks</div>
+                <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);" id="stat-picks-count">0</div>
+            </div>
+            <div style="text-align: center; border-left: 1px solid var(--border-color); border-right: 1px solid var(--border-color);">
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Combined Odds</div>
+                <div style="font-size: 24px; font-weight: 700; color: var(--accent-blue);" id="stat-combined-odds">1.00</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Win Prob</div>
+                <div style="font-size: 24px; font-weight: 700; color: var(--accent-emerald);" id="stat-win-prob">100%</div>
+            </div>
+        </div>
+
+        <!-- Slip Meta Info Form -->
+        <div style="margin-bottom: 20px;">
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label for="slip-name">Parlay Name</label>
+                <input type="text" id="slip-name" class="form-input" style="padding: 8px 12px;" placeholder="e.g. Weekend Accumulator">
+            </div>
+            <div class="form-group" style="margin-bottom: 12px;">
+                <label for="slip-notes">Notes / Strategy</label>
+                <textarea id="slip-notes" class="form-input" style="padding: 8px 12px; height: 60px; resize: none;" placeholder="Optional notes..."></textarea>
+            </div>
+        </div>
+
+        <!-- Scrollable Slip Items -->
+        <div id="slip-items-container" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; max-height: 45vh; overflow-y: auto; padding-right: 4px;">
+            <!-- Rendered dynamically -->
+        </div>
+
+        <!-- Action Buttons -->
+        <div>
+            <button onclick="saveSlip()" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 15px;">
+                💾 Save Parlay Slip
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Injected variables
+    const suggestedPicks = {{ suggested_picks | tojson }};
+    const availablePicks = {{ available_picks | tojson }};
+
+    // Current state of the draft parlay slip
+    let currentSlip = [];
+
+    // Helper to generate default slip name based on current date
+    function getDefaultSlipName() {
+        const today = new Date();
+        const yyyy = today.getFullYear();
+        let mm = today.getMonth() + 1;
+        let dd = today.getDate();
+        if (dd < 10) dd = '0' + dd;
+        if (mm < 10) mm = '0' + mm;
+        return `Engine Suggested Parlay ${dd}/${mm}/${yyyy}`;
+    }
+
+    // Initialize the slip
+    function initSlip() {
+        // Look for existing draft in localStorage
+        const storedDraft = localStorage.getItem('draft_parlay');
+        if (storedDraft) {
+            try {
+                currentSlip = JSON.parse(storedDraft);
+            } catch (e) {
+                console.error("Error parsing stored draft, falling back to suggestions", e);
+                currentSlip = loadSuggestionsIntoSlip();
+            }
+        } else {
+            currentSlip = loadSuggestionsIntoSlip();
+        }
+        
+        document.getElementById('slip-name').value = getDefaultSlipName();
+        renderAll();
+    }
+
+    function loadSuggestionsIntoSlip() {
+        return suggestedPicks.map(p => ({
+            ...p,
+            original_market_code: p.market_code,
+            original_confidence: p.confidence,
+            is_swapped: false,
+            warning_message: ""
+        }));
+    }
+
+    // Filter and render the Left panel
+    function filterAvailablePicks() {
+        const query = document.getElementById('pick-search').value.toLowerCase();
+        const listEl = document.getElementById('available-picks-list');
+        listEl.innerHTML = "";
+
+        // Filter picks
+        let filtered = availablePicks.filter(p => {
+            const teamMatch = p.home_team.toLowerCase().includes(query) || p.away_team.toLowerCase().includes(query);
+            const leagueMatch = p.league.toLowerCase().includes(query);
+            return teamMatch || leagueMatch;
+        });
+
+        // Limit display to 50 options to maintain UI speed
+        const count = filtered.length;
+        document.getElementById('available-count').innerText = `${count} options`;
+        
+        if (filtered.length === 0) {
+            listEl.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px;">No matching recommendations found.</div>`;
+            return;
+        }
+
+        filtered.forEach(p => {
+            // Check if match is already on the slip
+            const isMatchOnSlip = currentSlip.some(item => item.match_id === p.match_id);
+            const isExactPickOnSlip = currentSlip.some(item => item.match_id === p.match_id && item.market_code === p.market_code);
+
+            const card = document.createElement('div');
+            card.className = "card-sub";
+            card.style.cssText = `
+                background-color: var(--bg-surface-hover);
+                border: 1px solid var(--border-color);
+                border-radius: var(--border-radius-lg);
+                padding: 12px 16px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                transition: var(--transition-smooth);
+            `;
+
+            let actionBtn = "";
+            if (isExactPickOnSlip) {
+                actionBtn = `<span style="font-size: 12px; color: var(--accent-emerald); font-weight: 600;">✓ In Slip</span>`;
+            } else if (isMatchOnSlip) {
+                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-amber); border-color: var(--accent-amber-alpha);">Replace Market</button>`;
+            } else {
+                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">+ Slip</button>`;
+            }
+
+            card.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <span class="badge" style="background-color: var(--bg-elevated); color: var(--text-secondary); font-size: 9px; padding: 2px 6px; margin-bottom: 4px;">${p.league}</span>
+                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${p.home_team} vs ${p.away_team}</div>
+                    </div>
+                    <div>${actionBtn}</div>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary);">
+                    <div>
+                        <span style="font-weight: 600; color: var(--accent-blue);">${p.market_name}: ${p.pick}</span>
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center;">
+                        <span style="font-weight: 600; color: var(--text-primary);">${(p.probability * 100).toFixed(0)}%</span>
+                        <span style="color: var(--accent-blue); font-weight: 600;">@ ${p.implied_odds.toFixed(2)}</span>
+                        <span class="badge ${p.confidence === 'HIGH' ? 'badge-high' : p.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}" style="font-size: 8px; padding: 2px 6px;">${p.confidence}</span>
+                    </div>
+                </div>
+            `;
+            listEl.appendChild(card);
+        });
+    }
+
+    // Add/Replace a pick in the slip
+    function addPick(matchId, marketCode) {
+        const fullPick = availablePicks.find(p => p.match_id === matchId && p.market_code === marketCode);
+        if (!fullPick) return;
+
+        // Check if match is already on slip
+        const existingIdx = currentSlip.findIndex(item => item.match_id === matchId);
+
+        // Find out if the match was in the suggested list, to check original values
+        const suggested = suggestedPicks.find(s => s.match_id === matchId) || fullPick;
+
+        const newSlipItem = {
+            ...fullPick,
+            original_market_code: suggested.market_code,
+            original_confidence: suggested.confidence,
+            is_swapped: (marketCode !== suggested.market_code),
+            warning_message: ""
+        };
+
+        if (newSlipItem.is_swapped) {
+            const confLevels = { 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
+            const origConf = newSlipItem.original_confidence;
+            const newConf = newSlipItem.confidence;
+            if (confLevels[newConf] < confLevels[origConf]) {
+                newSlipItem.warning_message = `↓ Replacing ${origConf} with ${newConf}`;
+            } else {
+                newSlipItem.warning_message = `⚠ Manual swap`;
+            }
+        }
+
+        if (existingIdx !== -1) {
+            currentSlip[existingIdx] = newSlipItem;
+        } else {
+            currentSlip.push(newSlipItem);
+        }
+
+        // Save progress to local storage
+        saveDraftToLocalStorage();
+        renderAll();
+    }
+
+    // Remove pick from slip
+    function removePick(matchId) {
+        currentSlip = currentSlip.filter(item => item.match_id !== matchId);
+        saveDraftToLocalStorage();
+        renderAll();
+    }
+
+    // Swap pick within the slip via dropdown select
+    function handleSlipDropdownChange(matchId, marketCode) {
+        addPick(matchId, marketCode);
+    }
+
+    // Reset the slip
+    function clearSlip() {
+        if (confirm("Are you sure you want to clear your current slip?")) {
+            currentSlip = [];
+            saveDraftToLocalStorage();
+            renderAll();
+        }
+    }
+
+    // Save to local storage
+    function saveDraftToLocalStorage() {
+        localStorage.setItem('draft_parlay', JSON.stringify(currentSlip));
+    }
+
+    // Save slip to DB
+    function saveSlip() {
+        if (currentSlip.length === 0) {
+            alert("Your parlay slip is empty! Add recommendations to save.");
+            return;
+        }
+
+        const name = document.getElementById('slip-name').value.trim() || getDefaultSlipName();
+        const notes = document.getElementById('slip-notes').value.trim();
+
+        const payload = {
+            name: name,
+            size: currentSlip.length,
+            picks: currentSlip.map(item => ({
+                match_id: item.match_id,
+                home_team: item.home_team,
+                away_team: item.away_team,
+                league: item.league,
+                market_code: item.market_code,
+                market_name: item.market_name,
+                pick: item.pick,
+                probability: item.probability,
+                confidence: item.confidence,
+                implied_odds: item.implied_odds
+            })),
+            status: "draft",
+            notes: notes
+        };
+
+        fetch('/api/v1/parlay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(res => {
+            if (!res.ok) throw new Error("Could not save parlay.");
+            return res.json();
+        })
+        .then(data => {
+            alert("Parlay slip saved successfully as Draft!");
+            // Clear local storage draft upon saving to database
+            localStorage.removeItem('draft_parlay');
+            window.location.href = "/parlay/history";
+        })
+        .catch(err => {
+            alert("Error saving parlay: " + err.message);
+        });
+    }
+
+    // Dynamic calculations for totals
+    function updateCombinedStats() {
+        let count = currentSlip.length;
+        let combinedOdds = 1.0;
+        let combinedProb = 1.0;
+
+        currentSlip.forEach(item => {
+            combinedOdds *= item.implied_odds;
+            combinedProb *= item.probability;
+        });
+
+        if (count === 0) {
+            combinedOdds = 1.0;
+            combinedProb = 1.0;
+        }
+
+        document.getElementById('stat-picks-count').innerText = count;
+        document.getElementById('stat-combined-odds').innerText = combinedOdds.toFixed(2);
+        document.getElementById('stat-win-prob').innerText = (combinedProb * 100).toFixed(2) + "%";
+    }
+
+    // Render current slip list
+    function renderSlip() {
+        const container = document.getElementById('slip-items-container');
+        container.innerHTML = "";
+
+        if (currentSlip.length === 0) {
+            container.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: var(--text-secondary); border: 2px dashed var(--border-color); border-radius: var(--border-radius-lg);">
+                    <p style="font-size: 14px; font-weight: 500;">No items on your slip.</p>
+                    <p style="font-size: 12px; margin-top: 4px;">Choose recommendations from the left panel or high picks list to build.</p>
+                </div>
+            `;
+            return;
+        }
+
+        currentSlip.forEach(item => {
+            // Get all alternate options for this match
+            const alternatives = availablePicks.filter(alt => alt.match_id === item.match_id);
+
+            const row = document.createElement('div');
+            row.style.cssText = `
+                background-color: var(--bg-surface-hover);
+                border: 1px solid ${item.is_swapped ? 'var(--accent-amber-alpha)' : 'var(--border-color)'};
+                border-radius: var(--border-radius-lg);
+                padding: 12px;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                position: relative;
+            `;
+
+            // Build options for select dropdown
+            let optionsHTML = "";
+            alternatives.forEach(alt => {
+                const isSelected = (alt.market_code === item.market_code) ? "selected" : "";
+                optionsHTML += `<option value="${alt.market_code}" ${isSelected}>${alt.market_name}: ${alt.pick} (${(alt.probability * 100).toFixed(0)}% @ ${alt.implied_odds.toFixed(2)})</option>`;
+            });
+
+            // Swap warning or manual label
+            let warningBadge = "";
+            if (item.is_swapped) {
+                warningBadge = `<span class="badge" style="background-color: var(--accent-amber-alpha); color: var(--accent-amber); font-size: 8px; padding: 2px 6px;">${item.warning_message || '⚠ Swapped'}</span>`;
+            }
+
+            row.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                    <div>
+                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${item.home_team} vs ${item.away_team}</div>
+                        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">
+                            <span>${item.league}</span>
+                            ${warningBadge}
+                        </div>
+                    </div>
+                    <button onclick="removePick(${item.match_id})" class="btn btn-text" style="color: var(--accent-coral); padding: 0 4px; font-size: 16px; margin-top: -4px;">×</button>
+                </div>
+                
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <select onchange="handleSlipDropdownChange(${item.match_id}, this.value)" class="form-input" style="padding: 6px 10px; font-size: 12px; flex-grow: 1;">
+                        ${optionsHTML}
+                    </select>
+                    <span class="badge ${item.confidence === 'HIGH' ? 'badge-high' : item.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}" style="font-size: 9px; padding: 4px 8px;">${item.confidence}</span>
+                </div>
+            `;
+            container.appendChild(row);
+        });
+    }
+
+    function renderAll() {
+        filterAvailablePicks();
+        renderSlip();
+        updateCombinedStats();
+    }
+
+    // Initialize on page load
+    window.onload = initSlip;
+</script>
+{% endblock %}

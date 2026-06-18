@@ -261,6 +261,19 @@ CREATE TABLE IF NOT EXISTS user_markets (
     min_probability REAL DEFAULT 0.55,
     display_order   INTEGER DEFAULT 0
 );
+
+-- Saved parlays history
+CREATE TABLE IF NOT EXISTS parlays (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT    NOT NULL,
+    created_at      TEXT    DEFAULT (datetime('now')),
+    submitted_at    TEXT,
+    size            INTEGER NOT NULL,
+    picks           TEXT    NOT NULL,  -- JSON string of items
+    status          TEXT    NOT NULL DEFAULT 'draft',
+    correct_count   INTEGER,
+    notes           TEXT
+);
 """
 
 
@@ -1388,4 +1401,62 @@ class Database:
                         """,
                         (market_code, market_def.name, i)
                     )
+
+    # ═══════════════════════════════════════════════════════
+    #  Parlays History CRUD
+    # ═══════════════════════════════════════════════════════
+
+    def insert_parlay(self, name: str, size: int, picks: list[dict[str, Any]], status: str = 'draft', notes: str | None = None) -> int:
+        """Insert a new parlay slip into the database."""
+        picks_json = json.dumps(picks)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO parlays (name, size, picks, status, notes, created_at)
+                VALUES (?, ?, ?, ?, ?, datetime('now'))
+                """,
+                (name, size, picks_json, status, notes)
+            )
+            return cursor.lastrowid
+
+    def update_parlay_status(self, parlay_id: int, status: str, correct_count: int | None = None) -> None:
+        """Update a parlay slip status (e.g. submitted, won, lost) and correct picks count."""
+        with self._connect() as conn:
+            if status == "submitted":
+                conn.execute(
+                    "UPDATE parlays SET status=?, submitted_at=datetime('now') WHERE id=?",
+                    (status, parlay_id)
+                )
+            else:
+                conn.execute(
+                    "UPDATE parlays SET status=?, correct_count=? WHERE id=?",
+                    (status, correct_count, parlay_id)
+                )
+
+    def get_parlay(self, parlay_id: int) -> dict[str, Any] | None:
+        """Retrieve a parlay slip by its ID."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM parlays WHERE id=?", (parlay_id,)).fetchone()
+            if row:
+                res = dict(row)
+                res["picks"] = json.loads(res["picks"])
+                return res
+            return None
+
+    def get_all_parlays(self) -> list[dict[str, Any]]:
+        """Retrieve all parlay slips ordered by created_at desc."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM parlays ORDER BY created_at DESC").fetchall()
+            res_list = []
+            for r in rows:
+                d = dict(r)
+                d["picks"] = json.loads(d["picks"])
+                res_list.append(d)
+            return res_list
+
+    def delete_parlay(self, parlay_id: int) -> None:
+        """Remove a parlay slip from the database."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM parlays WHERE id=?", (parlay_id,))
+
 
