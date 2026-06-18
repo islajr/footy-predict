@@ -100,6 +100,27 @@
         </div>
     </div>
 
+    <!-- Fetch Progress Modal -->
+    <div id="fetch-progress-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); z-index: 9999; align-items: center; justify-content: center;">
+        <div class="card" style="width: 100%; max-width: 600px; padding: 24px; display: flex; flex-direction: column; height: 450px; margin-bottom: 0;">
+            <h3 style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <span>↻ Data Synchronization</span>
+                <span id="fetch-modal-status" class="badge badge-medium" style="font-size: 11px;">Running</span>
+            </h3>
+            
+            <p id="fetch-modal-progress" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Initializing connection...</p>
+            
+            <!-- Log Console -->
+            <div id="fetch-modal-logs" style="flex-grow: 1; background-color: #000000; border-radius: var(--border-radius-md); padding: 12px; font-family: monospace; font-size: 12px; color: #00C896; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border-color); text-align: left; line-height: 1.4;">
+                <!-- Logs appended here -->
+            </div>
+            
+            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+                <button id="fetch-modal-close-btn" onclick="closeFetchModal(true)" class="btn btn-primary" style="display: none; padding: 8px 16px;">Close & Reload</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Global Layout Scripts -->
     <script>
         function toggleTheme() {
@@ -122,15 +143,92 @@
             });
         }
 
+        let fetchEventSource = null;
+
         function triggerGlobalFetch() {
-            if (confirm("Would you like to trigger a fresh background fetch? (Checks leagues and saves new match schedules)")) {
-                fetch('/api/v1/fetch', { method: 'POST' })
-                    .then(r => r.json())
-                    .then(data => {
-                        alert("Background fetch task started successfully! Data will refresh in a few seconds.");
-                        window.location.reload();
-                    })
-                    .catch(e => alert("Error starting background fetch: " + e));
+            // Show modal
+            const modal = document.getElementById('fetch-progress-modal');
+            const logsContainer = document.getElementById('fetch-modal-logs');
+            const progressEl = document.getElementById('fetch-modal-progress');
+            const statusEl = document.getElementById('fetch-modal-status');
+            const closeBtn = document.getElementById('fetch-modal-close-btn');
+
+            modal.style.display = "flex";
+            logsContainer.innerHTML = "<div>[SYSTEM] Sending synchronization request...</div>";
+            progressEl.innerText = "Initializing connection...";
+            statusEl.className = "badge badge-medium";
+            statusEl.innerText = "RUNNING";
+            closeBtn.style.display = "none";
+
+            fetch('/api/v1/fetch', { method: 'POST' })
+                .then(r => {
+                    if (!r.ok) throw new Error("API responded with error code " + r.status);
+                    return r.json();
+                })
+                .then(data => {
+                    const taskId = data.task_id;
+                    logsContainer.innerHTML += `<div>[SYSTEM] Task started (ID: ${taskId}). Opening stream...</div>`;
+                    
+                    // Connect to SSE stream
+                    fetchEventSource = new EventSource(`/api/v1/fetch/stream/${taskId}`);
+                    
+                    fetchEventSource.onmessage = function(event) {
+                        try {
+                            const payload = JSON.parse(event.data);
+                            
+                            if (payload.log) {
+                                const logDiv = document.createElement('div');
+                                logDiv.innerText = payload.log;
+                                logsContainer.appendChild(logDiv);
+                                logsContainer.scrollTop = logsContainer.scrollHeight;
+                            }
+                            
+                            if (payload.progress) {
+                                progressEl.innerText = payload.progress;
+                            }
+                            
+                            if (payload.done) {
+                                statusEl.className = "badge badge-high";
+                                statusEl.innerText = "SUCCESS";
+                                logsContainer.innerHTML += "<div style='color: white; font-weight: bold;'>[SYSTEM] Synchronization complete!</div>";
+                                logsContainer.scrollTop = logsContainer.scrollHeight;
+                                closeBtn.style.display = "block";
+                                fetchEventSource.close();
+                            } else if (payload.status === "failed") {
+                                statusEl.className = "badge badge-low";
+                                statusEl.innerText = "FAILED";
+                                closeBtn.style.display = "block";
+                                fetchEventSource.close();
+                            }
+                        } catch (e) {
+                            console.error("Error parsing event data", e);
+                        }
+                    };
+
+                    fetchEventSource.onerror = function(err) {
+                        console.error("EventSource error", err);
+                        logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Stream disconnected. Fetch running in background.</div>";
+                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                        closeBtn.style.display = "block";
+                        if (fetchEventSource) fetchEventSource.close();
+                    };
+                })
+                .catch(e => {
+                    logsContainer.innerHTML += `<div style="color: var(--accent-coral);">[ERROR] ${e.message}</div>`;
+                    statusEl.className = "badge badge-low";
+                    statusEl.innerText = "ERROR";
+                    closeBtn.style.display = "block";
+                });
+        }
+
+        function closeFetchModal(reload = false) {
+            document.getElementById('fetch-progress-modal').style.display = "none";
+            if (fetchEventSource) {
+                fetchEventSource.close();
+                fetchEventSource = null;
+            }
+            if (reload) {
+                window.location.reload();
             }
         }
     </script>

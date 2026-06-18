@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import uuid
 import logging
+import json
+from datetime import datetime, timezone, timedelta
 from typing import Any
 from fastapi import APIRouter, Depends, Query, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from src.database import Database
 from src.api.deps import get_db
 from src.api.schemas import QuotaStatusSchema
@@ -18,6 +21,90 @@ router = APIRouter(prefix="/fetch", tags=["Fetch"])
 
 # In-memory store for tracking background fetch tasks
 FETCH_TASKS: dict[str, dict[str, Any]] = {}
+
+
+def get_smart_fetch_plan(db: Database) -> dict[str, Any]:
+    """Decide which leagues to fetch based on day of week and match schedules."""
+    enabled_slugs = db.get_enabled_leagues()
+    if not enabled_slugs:
+        return {
+            "strategy": "smart",
+            "leagues_to_fetch": [],
+            "rationale": "No leagues are currently enabled in settings.",
+            "quota_cost_est": 0
+        }
+
+    # Check if database is empty of matches. If so, do full refresh.
+    with db._connect() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+    
+    if count == 0:
+        return {
+            "strategy": "smart",
+            "leagues_to_fetch": enabled_slugs,
+            "rationale": "Database matches table is empty. Triggering bootstrap fetch for all enabled leagues.",
+            "quota_cost_est": len(enabled_slugs) * 4
+        }
+
+    now_utc = datetime.now(timezone.utc)
+    weekday = now_utc.weekday()  # 0=Monday, 6=Sunday
+
+    # Thursday–Friday: full refresh for the upcoming weekend fixtures.
+    if weekday in (3, 4):
+        return {
+            "strategy": "smart",
+            "leagues_to_fetch": enabled_slugs,
+            "rationale": "Thursday/Friday: weekend preview full refresh for all enabled leagues.",
+            "quota_cost_est": len(enabled_slugs) * 4
+        }
+
+    def find_active_leagues_in_range(start_dt: datetime, end_dt: datetime) -> set[str]:
+        start_str = start_dt.strftime("%Y-%m-%d")
+        end_str = end_dt.strftime("%Y-%m-%d") + "T23:59:59"
+        with db._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT l.slug
+                FROM matches m
+                JOIN leagues l ON m.league_id = l.id
+                WHERE m.date >= ? AND m.date <= ?
+                """,
+                (start_str, end_str)
+            ).fetchall()
+            return {r[0] for r in rows if r[0] in enabled_slugs}
+
+    # Saturday/Sunday: fetch only leagues with matches today/tomorrow
+    if weekday in (5, 6):
+        active_slugs = find_active_leagues_in_range(now_utc, now_utc + timedelta(days=1))
+        if not active_slugs:
+            return {
+                "strategy": "smart",
+                "leagues_to_fetch": enabled_slugs,
+                "rationale": "Weekend: No scheduled matches found today/tomorrow in DB. Falling back to all enabled.",
+                "quota_cost_est": len(enabled_slugs) * 4
+            }
+        return {
+            "strategy": "smart",
+            "leagues_to_fetch": list(active_slugs),
+            "rationale": f"Weekend: Fetching active leagues with matches today/tomorrow ({', '.join(active_slugs)}).",
+            "quota_cost_est": len(active_slugs) * 4
+        }
+
+    # Monday–Wednesday: fetch only leagues with midweek fixtures (next 3 days)
+    active_slugs = find_active_leagues_in_range(now_utc, now_utc + timedelta(days=3))
+    if not active_slugs:
+        return {
+            "strategy": "smart",
+            "leagues_to_fetch": enabled_slugs,
+            "rationale": "Midweek: No midweek matches found in DB. Falling back to all enabled.",
+            "quota_cost_est": len(enabled_slugs) * 4
+        }
+    return {
+        "strategy": "smart",
+        "leagues_to_fetch": list(active_slugs),
+        "rationale": f"Midweek: Fetching leagues with midweek fixtures in next 3 days ({', '.join(active_slugs)}).",
+        "quota_cost_est": len(active_slugs) * 4
+    }
 
 
 async def run_background_fetch(task_id: str, league_slug: str | None, db: Database):
@@ -35,9 +122,21 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
                 return
             target_leagues = [LEAGUES[league_slug]]
         else:
-            # In Stage 2 we'll filter this by active leagues in SQLite,
-            # but for now we fetch all canonical LEAGUES.
-            target_leagues = list(LEAGUES.values())
+            strategy = db.get_setting("fetch_strategy") or "full"
+            if strategy == "smart":
+                plan = get_smart_fetch_plan(db)
+                slugs = plan["leagues_to_fetch"]
+                task["logs"].append(f"Smart fetch plan activated. Rationale: {plan['rationale']}")
+                task["logs"].append(f"Estimated API cost: {plan['quota_cost_est']} calls.")
+                target_leagues = [LEAGUES[s] for s in slugs if s in LEAGUES]
+            else:
+                # Full strategy: fetch active/enabled leagues
+                enabled_slugs = db.get_enabled_leagues()
+                if not enabled_slugs:
+                    task["logs"].append("No active leagues enabled. Fetching all available leagues by default.")
+                    target_leagues = list(LEAGUES.values())
+                else:
+                    target_leagues = [LEAGUES[s] for s in enabled_slugs if s in LEAGUES]
 
         task["total"] = len(target_leagues)
         task["progress"] = f"Starting fetch for {task['total']} league(s)..."
@@ -133,6 +232,32 @@ def get_fetch_status(task_id: str):
     if task_id not in FETCH_TASKS:
         return {"status": "not_found", "progress": "Task not found."}
     return FETCH_TASKS[task_id]
+
+
+@router.get("/stream/{task_id}")
+async def stream_fetch_logs(task_id: str):
+    """SSE endpoint streaming log lines of a fetch task as they arrive."""
+    async def event_generator():
+        if task_id not in FETCH_TASKS:
+            yield f"data: {json.dumps({'status': 'not_found', 'progress': 'Task not found.', 'done': True})}\n\n"
+            return
+
+        task = FETCH_TASKS[task_id]
+        last_idx = 0
+        while True:
+            logs = task["logs"]
+            if last_idx < len(logs):
+                for i in range(last_idx, len(logs)):
+                    yield f"data: {json.dumps({'status': task['status'], 'log': logs[i], 'progress': task['progress']})}\n\n"
+                last_idx = len(logs)
+
+            if task["status"] in ("success", "failed"):
+                yield f"data: {json.dumps({'status': task['status'], 'progress': task['progress'], 'done': True})}\n\n"
+                break
+
+            await asyncio.sleep(0.5)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.get("/quota", response_model=list[QuotaStatusSchema])
