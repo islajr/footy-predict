@@ -29,12 +29,18 @@
         </p>
     </div>
     <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-top: 10px;">
+        {% if settings.onboarding_complete %}
         <a href="/dashboard" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px;">
             ⚡ Enter Dashboard
         </a>
         <a href="/parlay" class="btn btn-secondary" style="padding: 12px 24px; font-size: 15px; border-color: var(--accent-blue-alpha); color: var(--accent-blue);">
             🎲 Open Parlay Builder
         </a>
+        {% else %}
+        <a href="/onboarding" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px; background-color: var(--accent-blue); color: white;">
+            🚀 Start Onboarding Setup
+        </a>
+        {% endif %}
     </div>
 </div>
 

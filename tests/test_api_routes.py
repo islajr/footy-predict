@@ -132,10 +132,10 @@ def test_markets_preferences(client):
             assert m["min_probability"] == 0.65
 
 def test_html_views_onboarding_redirects(client):
-    # If onboarding is incomplete, accessing root redirects to /onboarding
+    # Root (landing page) is accessible even if onboarding is incomplete
     response = client.get("/", follow_redirects=False)
-    assert response.status_code == 307
-    assert response.headers["location"] == "/onboarding"
+    assert response.status_code == 200
+    assert "Welcome to Footy Predict" in response.text
 
     # Dashboard redirects too
     response_dash = client.get("/dashboard", follow_redirects=False)

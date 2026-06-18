@@ -121,10 +121,6 @@ def show_onboarding(request: Request, db: Database = Depends(get_db)):
 @router.get("/", response_class=HTMLResponse)
 def show_home(request: Request, db: Database = Depends(get_db)):
     """Render the main welcome homepage."""
-    onboarding_complete = (db.get_setting("onboarding_complete") == "1")
-    if not onboarding_complete:
-        return RedirectResponse(url="/onboarding")
-
     context = get_view_context(request, db, "home")
 
     # Fetch database summary statistics for homepage metadata
