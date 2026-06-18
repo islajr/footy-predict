@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ settings.theme or 'dark' }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Footy Predict{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="logo-container">
+                <span class="logo-emoji">⚽</span>
+                <span class="logo-text">Footy Predict</span>
+            </div>
+            
+            <nav class="nav-menu">
+                <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                    <a href="/dashboard">
+                        <span class="nav-icon">⚡</span>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item {% if active_page == 'analysis' %}active{% endif %}">
+                    <a href="/analysis">
+                        <span class="nav-icon">🔍</span>
+                        <span>Analysis</span>
+                    </a>
+                </li>
+                <li class="nav-item {% if active_page == 'picks' %}active{% endif %}">
+                    <a href="/picks">
+                        <span class="nav-icon">🎯</span>
+                        <span>Picks</span>
+                    </a>
+                </li>
+                <li class="nav-item {% if active_page == 'parlay' %}active{% endif %}">
+                    <a href="/parlay">
+                        <span class="nav-icon">🎲</span>
+                        <span>Parlay Builder</span>
+                    </a>
+                </li>
+                <li class="nav-item {% if active_page == 'statistics' %}active{% endif %}">
+                    <a href="/statistics">
+                        <span class="nav-icon">📊</span>
+                        <span>Statistics</span>
+                    </a>
+                </li>
+                <li class="nav-item {% if active_page == 'settings' %}active{% endif %}">
+                    <a href="/settings">
+                        <span class="nav-icon">⚙️</span>
+                        <span>Settings</span>
+                    </a>
+                </li>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <button onclick="triggerGlobalFetch()" class="btn btn-secondary btn-full" style="width: 100%;">
+                    <span>↻ Refresh Data</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <div class="main-wrapper">
+            <!-- Top App Header -->
+            <header class="app-header">
+                <div class="header-title">
+                    {% block header_title %}Overview{% endblock %}
+                </div>
+                
+                <div class="header-actions">
+                    <!-- Quota Remaining Display -->
+                    <div class="quota-badge {% if quota.remaining < 20 %}quota-danger{% elif quota.remaining < 50 %}quota-warning{% else %}quota-ok{% endif %}">
+                        <span>Quota: {{ quota.remaining }} remaining today</span>
+                    </div>
+                    
+                    <!-- Theme Toggle -->
+                    <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
+                        🌓
+                    </button>
+                </div>
+            </header>
+
+            <!-- Data Freshness Banner -->
+            {% if freshness %}
+            <div class="freshness-banner {% if freshness.hours > 48 %}freshness-red{% elif freshness.hours > 24 %}freshness-amber{% else %}freshness-green{% endif %}">
+                <span>⚽ Database last refreshed {{ freshness.label }}.</span>
+                {% if freshness.hours > 24 %}
+                <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600;">Refresh now</a>
+                {% endif %}
+            </div>
+            {% endif %}
+
+            <!-- Page Body Content -->
+            <main class="content-body">
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+
+    <!-- Global Layout Scripts -->
+    <script>
+        function toggleTheme() {
+            const htmlEl = document.documentElement;
+            const currentTheme = htmlEl.getAttribute('data-theme') || 'dark';
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            htmlEl.setAttribute('data-theme', newTheme);
+            
+            // Persist the theme using settings update
+            fetch('/api/v1/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    api_football_key: "{{ settings.api_football_key }}",
+                    football_data_org_key: "{{ settings.football_data_org_key }}",
+                    theme: newTheme,
+                    onboarding_complete: {{ 'true' if settings.onboarding_complete else 'false' }},
+                    fetch_strategy: "{{ settings.fetch_strategy }}"
+                })
+            });
+        }
+
+        function triggerGlobalFetch() {
+            if (confirm("Would you like to trigger a fresh background fetch? (Checks leagues and saves new match schedules)")) {
+                fetch('/api/v1/fetch', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        alert("Background fetch task started successfully! Data will refresh in a few seconds.");
+                        window.location.reload();
+                    })
+                    .catch(e => alert("Error starting background fetch: " + e));
+            }
+        }
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

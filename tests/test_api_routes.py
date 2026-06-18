@@ -131,3 +131,44 @@ def test_markets_preferences(client):
             assert m["enabled"] is False
             assert m["min_probability"] == 0.65
 
+def test_html_views_onboarding_redirects(client):
+    # If onboarding is incomplete, accessing root redirects to /onboarding
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"] == "/onboarding"
+
+    # Dashboard redirects too
+    response_dash = client.get("/dashboard", follow_redirects=False)
+    assert response_dash.status_code == 307
+    assert response_dash.headers["location"] == "/onboarding"
+
+    # Onboarding page is accessible directly
+    response_onb = client.get("/onboarding")
+    assert response_onb.status_code == 200
+    assert "Welcome to Footy Predict" in response_onb.text
+
+def test_html_views_authorized(client, temp_db):
+    # Set onboarding as complete
+    temp_db.set_setting("onboarding_complete", "1")
+
+    # Accessing dashboard should work now
+    response = client.get("/dashboard")
+    assert response.status_code == 200
+    assert "Welcome back, Bettor!" in response.text
+
+    # Accessing picks should work
+    response_picks = client.get("/picks")
+    assert response_picks.status_code == 200
+    assert "High-Confidence Recommendations" in response_picks.text
+
+    # Accessing statistics should work
+    response_stats = client.get("/statistics")
+    assert response_stats.status_code == 200
+    assert "Accuracy & Model Calibration" in response_stats.text
+
+    # Accessing settings should work
+    response_settings = client.get("/settings")
+    assert response_settings.status_code == 200
+    assert "App Preferences & Settings" in response_settings.text
+
+

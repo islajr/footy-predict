@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+
+{% block title %}{{ analysis.home_team }} vs {{ analysis.away_team }} — Footy Predict{% endblock %}
+{% block header_title %}🔍 Match Deep Dive{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 24px;">
+    <a href="/analysis" style="font-size: 13px; font-weight: 600; color: var(--text-secondary);">&larr; Back to Matchweek</a>
+</div>
+
+<div class="card" style="margin-bottom: 24px;">
+    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px;">{{ analysis.league }} │ {{ analysis.match_date }}</div>
+    <h1 style="font-size: 32px; margin-bottom: 16px;">{{ analysis.home_team }} vs {{ analysis.away_team }}</h1>
+    
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px; flex-wrap: wrap;">
+        <div style="background-color: var(--bg-surface-hover); padding: 12px 18px; border-radius: var(--border-radius-lg);">
+            <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Overall Home Bias</div>
+            <div style="font-size: 20px; font-weight: 700; color: {% if analysis.overall_home_score > 0.1 %}var(--accent-emerald){% elif analysis.overall_home_score < -0.1 %}var(--accent-coral){% else %}var(--text-primary){% endif %};">
+                {{ "%.2f"|format(analysis.overall_home_score) }}
+            </div>
+        </div>
+        <div style="background-color: var(--bg-surface-hover); padding: 12px 18px; border-radius: var(--border-radius-lg);">
+            <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">System Confidence</div>
+            <div style="font-size: 20px; font-weight: 700; color: var(--accent-blue);">
+                {{ (analysis.overall_confidence * 100)|int }}%
+            </div>
+        </div>
+        <div style="background-color: var(--bg-surface-hover); padding: 12px 18px; border-radius: var(--border-radius-lg);">
+            <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Data Availability</div>
+            <div style="font-size: 20px; font-weight: 700; color: var(--text-primary);">
+                {{ analysis.data_quality }}
+            </div>
+        </div>
+    </div>
+
+    <!-- Rationale summary paragraph -->
+    {% if analysis.summary %}
+    <div style="border-left: 4px solid var(--accent-blue); padding-left: 16px; font-size: 15px; font-style: italic; color: var(--text-primary); margin-bottom: 24px;">
+        "{{ analysis.summary }}"
+    </div>
+    {% endif %}
+
+    <!-- Risk flags block -->
+    {% if analysis.risk_flags %}
+    <div class="info-alert" style="background-color: var(--accent-amber-alpha); color: var(--accent-amber); border-color: rgba(245, 166, 35, 0.2); margin-bottom: 24px;">
+        <div style="font-weight: 700; margin-bottom: 6px;">⚠️ Risk Flags Detected</div>
+        <ul style="padding-left: 20px; font-size: 13px;">
+            {% for flag in analysis.risk_flags %}
+            <li>{{ flag }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Grid Layout: Factor scores on left, market picks on right -->
+<div class="dashboard-grid">
+    <!-- Left Panel: 12 Factors Visual Bar Charts -->
+    <div class="card">
+        <h2 style="font-size: 18px; margin-bottom: 20px;">📊 Statistical Factor Scoring</h2>
+        <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 24px;">
+            Scores represent biases from -1.0 (strongly favors away) to +1.0 (strongly favors home). Gray represents neutral.
+        </p>
+
+        {% for f in analysis.factor_results %}
+        <div class="factor-bar-container">
+            <div class="factor-name" title="{{ f.rationale }}">{{ f.name.replace('_', ' ').title() }}</div>
+            <div class="factor-track">
+                <!-- If score is positive, fill from center to right (home bias) -->
+                {% if f.score > 0 %}
+                <div class="factor-bar factor-bar-home" style="width: {{ (f.score * 50)|int }}%;"></div>
+                {% elif f.score < 0 %}
+                <!-- If score is negative, fill from center to left (away bias) -->
+                <div class="factor-bar factor-bar-away" style="width: {{ (f.score|abs * 50)|int }}%;"></div>
+                {% endif %}
+            </div>
+            <div class="factor-val">{{ "%.2f"|format(f.score) }}</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Right Panel: Market Recommendations List -->
+    <div>
+        <div class="card">
+            <h2 style="font-size: 18px; margin-bottom: 20px;">🎯 Market Recommendations</h2>
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+                {% for r in analysis.market_recommendations %}
+                <div style="border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: 16px; background-color: var(--bg-surface-hover);">
+                    <div class="flex-between" style="margin-bottom: 8px;">
+                        <span style="font-weight: 700; font-size: 15px;">{{ r.market_name }}</span>
+                        <span class="badge {% if r.confidence == 'HIGH' %}badge-high{% elif r.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">
+                            {{ r.confidence }}
+                        </span>
+                    </div>
+                    
+                    <div style="font-size: 13px; margin-bottom: 12px;">
+                        System Pick: <span style="font-weight: 700; color: var(--accent-emerald);">{{ r.pick }}</span> 
+                        │ Probability: <span style="font-weight: 600;">{{ (r.probability * 100)|int }}%</span>
+                        │ Fair Odds: <span style="color: var(--accent-blue); font-weight: 600;">{{ "%.2f"|format(r.implied_odds) }}</span>
+                    </div>
+
+                    <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;">
+                        <strong>Rationale:</strong> {{ r.rationale }}
+                    </div>
+
+                    {% if r.risk_factors %}
+                    <div style="font-size: 12px; color: var(--accent-coral);">
+                        <strong>Risks:</strong> {{ r.risk_factors|join(', ') }}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

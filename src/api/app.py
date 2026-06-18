@@ -7,10 +7,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from src.main import init_app
-from src.api.routes import analysis, picks, fetch, accuracy, settings
+from src.api.routes import analysis, picks, fetch, accuracy, settings, views
 
 logger = logging.getLogger("footy.api")
 
@@ -50,7 +49,6 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 TEMPLATES_DIR.mkdir(parents=True, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
 @app.get("/health", tags=["System"])
@@ -79,11 +77,7 @@ app.include_router(accuracy.router, prefix="/api/v1")
 app.include_router(settings.router, prefix="/api/v1")
 
 
-@app.get("/")
-def home():
-    """Default redirect to the dashboard home page."""
-    # We will redirect to dashboard `/` or `/dashboard` once the HTML views are built in Stage 3
-    return RedirectResponse(url="/health")
+app.include_router(views.router)
 
 
 def main():

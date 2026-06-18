@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Footy Predict</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        body {
+            background-color: var(--bg-base);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+        }
+        .onboarding-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-xl);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+            box-shadow: var(--card-shadow);
+        }
+        .onboarding-step-content {
+            display: none;
+        }
+        .onboarding-step-content.active {
+            display: block;
+        }
+        .step-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 32px;
+        }
+        .league-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            background-color: var(--bg-surface-hover);
+        }
+        .market-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius-md);
+            background-color: var(--bg-surface-hover);
+        }
+        .checkbox-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .test-btn-container {
+            display: flex;
+            gap: 8px;
+        }
+        .test-status {
+            font-size: 12px;
+            font-weight: 600;
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="onboarding-card">
+        <div class="logo-container" style="justify-content: center; margin-bottom: 20px;">
+            <span class="logo-emoji" style="font-size: 32px;">⚽</span>
+            <span class="logo-text" style="font-size: 24px;">Footy Predict</span>
+        </div>
+        
+        <!-- Steps Header -->
+        <div class="onboarding-steps">
+            <div class="step-indicator active" id="ind-1">1</div>
+            <div class="step-indicator" id="ind-2">2</div>
+            <div class="step-indicator" id="ind-3">3</div>
+            <div class="step-indicator" id="ind-4">4</div>
+        </div>
+
+        <form id="onboarding-form" onsubmit="return false;">
+            <!-- Step 1: Welcome -->
+            <div class="onboarding-step-content active" id="step-1">
+                <h2 style="margin-bottom: 12px;">Data-backed Football Parlays</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                    Welcome to Footy Predict! This is a local-first application designed to build, calibrate, and track high-probability parlays using actual statistics.
+                </p>
+                <p style="color: var(--text-secondary);">
+                    Let's take a quick minute to configure your tracking scopes, selected leagues of interest, preferred betting markets, and API key tokens.
+                </p>
+            </div>
+
+            <!-- Step 2: API Keys -->
+            <div class="onboarding-step-content" id="step-2">
+                <h2 style="margin-bottom: 12px;">Configure API Connections</h2>
+                <p class="subtitle" style="margin-bottom: 20px;">API credentials are stored securely in your local database, not hosted online.</p>
+                
+                <div class="form-group">
+                    <label for="api_football_key">API-Football Key (Primary Source)</label>
+                    <div class="test-btn-container">
+                        <input type="password" id="api_football_key" class="form-input" placeholder="Enter API-Football Key" value="{{ settings.api_football_key }}">
+                        <button type="button" onclick="testKey('api_football')" class="btn btn-secondary">Test</button>
+                    </div>
+                    <div id="status-api_football" class="test-status"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="football_data_org_key">Football-Data.org Token (Secondary Source)</label>
+                    <div class="test-btn-container">
+                        <input type="password" id="football_data_org_key" class="form-input" placeholder="Enter Football-Data.org Key" value="{{ settings.football_data_org_key }}">
+                        <button type="button" onclick="testKey('football_data_org')" class="btn btn-secondary">Test</button>
+                    </div>
+                    <div id="status-football_data_org" class="test-status"></div>
+                </div>
+            </div>
+
+            <!-- Step 3: Choose Leagues -->
+            <div class="onboarding-step-content" id="step-3">
+                <h2 style="margin-bottom: 12px;">Select Active Leagues</h2>
+                <p class="subtitle">Checkbox the football leagues you wish to analyze.</p>
+                
+                <div class="league-grid">
+                    {% for lg in leagues %}
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="leagues" value="{{ lg.slug }}" {% if lg.enabled %}checked{% endif %}>
+                        <span>{{ lg.name }} ({{ lg.country }})</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Step 4: Choose Markets -->
+            <div class="onboarding-step-content" id="step-4">
+                <h2 style="margin-bottom: 12px;">Select Betting Markets</h2>
+                <p class="subtitle">Configure preferred betting scopes and target probability floor thresholds.</p>
+                
+                <div class="market-list">
+                    {% for mk in markets %}
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" name="markets" value="{{ mk.market_code }}" {% if mk.enabled %}checked{% endif %}>
+                            <span>{{ mk.display_name }}</span>
+                        </label>
+                        <div class="slider-group">
+                            <input type="range" name="min_prob_{{ mk.market_code }}" min="0.4" max="0.9" step="0.05" value="{{ mk.min_probability }}">
+                            <span class="slider-value" id="val_{{ mk.market_code }}">{{ (mk.min_probability * 100)|int }}%</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="step-buttons">
+                <button type="button" class="btn btn-secondary" id="prev-btn" onclick="moveStep(-1)" style="visibility: hidden;">Back</button>
+                <button type="button" class="btn btn-primary" id="next-btn" onclick="moveStep(1)">Get Started</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        let currentStep = 1;
+        const totalSteps = 4;
+
+        // Dynamic slider value listeners
+        document.querySelectorAll('input[type="range"]').forEach(slider => {
+            slider.addEventListener('input', (e) => {
+                const code = slider.name.replace('min_prob_', '');
+                document.getElementById('val_' + code).innerText = Math.round(e.target.value * 100) + '%';
+            });
+        });
+
+        function moveStep(direction) {
+            if (direction === 1 && currentStep === totalSteps) {
+                submitOnboarding();
+                return;
+            }
+
+            // Hide current step
+            document.getElementById('step-' + currentStep).classList.remove('active');
+            document.getElementById('ind-' + currentStep).classList.remove('active');
+            if (direction === 1) {
+                document.getElementById('ind-' + currentStep).classList.add('completed');
+            } else {
+                document.getElementById('ind-' + (currentStep - 1)).classList.remove('completed');
+            }
+
+            // Update step count
+            currentStep += direction;
+
+            // Show new step
+            document.getElementById('step-' + currentStep).classList.add('active');
+            document.getElementById('ind-' + currentStep).classList.add('active');
+
+            // Button configurations
+            const prevBtn = document.getElementById('prev-btn');
+            const nextBtn = document.getElementById('next-btn');
+
+            prevBtn.style.visibility = currentStep === 1 ? 'hidden' : 'visible';
+            nextBtn.innerText = currentStep === totalSteps ? 'Finish Setup' : (currentStep === 1 ? 'Get Started' : 'Next');
+        }
+
+        function testKey(provider) {
+            const key = document.getElementById(provider + '_key').value.trim();
+            const statusDiv = document.getElementById('status-' + provider);
+            statusDiv.innerText = 'Testing connection...';
+            statusDiv.className = 'test-status';
+
+            fetch('/api/v1/settings/test-key', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ provider: provider, key: key })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.valid) {
+                    statusDiv.innerText = '✓ Key valid. Quota: ' + data.quota_remaining + ' calls remaining.';
+                    statusDiv.style.color = 'var(--accent-emerald)';
+                } else {
+                    statusDiv.innerText = '✗ Invalid: ' + (data.error || 'Check credentials');
+                    statusDiv.style.color = 'var(--accent-coral)';
+                }
+            })
+            .catch(e => {
+                statusDiv.innerText = '✗ Test failed: ' + e;
+                statusDiv.style.color = 'var(--accent-coral)';
+            });
+        }
+
+        function submitOnboarding() {
+            // Compile leagues preferences payload
+            const enabledLeagues = Array.from(document.querySelectorAll('input[name="leagues"]:checked')).map(el => el.value);
+            const allLeagues = Array.from(document.querySelectorAll('input[name="leagues"]')).map((el, index) => {
+                return {
+                    name: el.nextElementSibling.innerText,
+                    country: "",
+                    slug: el.value,
+                    enabled: el.checked,
+                    display_order: index
+                };
+            });
+
+            // Compile markets preferences payload
+            const allMarkets = Array.from(document.querySelectorAll('input[name="markets"]')).map((el, index) => {
+                const code = el.value;
+                const minProb = parseFloat(document.querySelector('input[name="min_prob_' + code + '"]').value);
+                return {
+                    market_code: code,
+                    display_name: el.nextElementSibling.innerText,
+                    enabled: el.checked,
+                    min_probability: minProb,
+                    display_order: index
+                };
+            });
+
+            // Form data settings payload
+            const apiFootballKey = document.getElementById('api_football_key').value.trim();
+            const fdoKey = document.getElementById('football_data_org_key').value.trim();
+
+            const settingsPayload = {
+                api_football_key: apiFootballKey,
+                football_data_org_key: fdoKey,
+                theme: "dark",
+                onboarding_complete: true,
+                fetch_strategy: "full"
+            };
+
+            // Post settings, leagues, and markets concurrently
+            Promise.all([
+                fetch('/api/v1/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settingsPayload)
+                }),
+                fetch('/api/v1/settings/leagues', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(allLeagues)
+                }),
+                fetch('/api/v1/settings/markets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(allMarkets)
+                })
+            ])
+            .then(() => {
+                // Redirect on success
+                window.location.href = '/dashboard';
+            })
+            .catch(e => alert("Error saving onboarding details: " + e));
+        }
+    </script>
+</body>
+</html>
