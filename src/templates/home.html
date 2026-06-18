@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Home — Footy Predict{% endblock %}
-{% block header_title %}🏠 Home{% endblock %}
+{% block header_title %}Home{% endblock %}
 
 {% block content %}
 <div style="margin-bottom: 32px;">
@@ -11,7 +11,7 @@
 
 <!-- Primary Entry CTA Actions -->
 <div class="card" style="padding: 28px; background-color: var(--bg-surface); border: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 20px; align-items: center; text-align: center; margin-bottom: 32px;">
-    <div style="font-size: 48px;">⚽</div>
+    <div style="font-size: 32px; font-weight: 700; color: var(--accent-blue); letter-spacing: -1px; margin-bottom: -10px;">FP</div>
     <div>
         <h2 style="margin-bottom: 8px; font-weight: 700;">Ready to construct your next parlay?</h2>
         <p style="color: var(--text-secondary); max-width: 500px; margin: 0 auto; font-size: 14px;">
@@ -21,14 +21,14 @@
     <div style="display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; margin-top: 10px;">
         {% if settings.onboarding_complete %}
         <a href="/dashboard" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px;">
-            ⚡ Enter Dashboard
+            Enter Dashboard
         </a>
         <a href="/parlay" class="btn btn-secondary" style="padding: 12px 24px; font-size: 15px; border-color: var(--accent-blue-alpha); color: var(--accent-blue);">
-            🎲 Open Parlay Builder
+            Open Parlay Builder
         </a>
         {% else %}
         <a href="/onboarding" class="btn btn-primary" style="padding: 12px 24px; font-size: 15px; background-color: var(--accent-blue); color: white;">
-            🚀 Start Onboarding Setup
+            Start Onboarding Setup
         </a>
         {% endif %}
     </div>
@@ -39,7 +39,6 @@
     
     <!-- Feature: 12 Leagues -->
     <div class="card" style="margin-bottom: 0;">
-        <div style="font-size: 24px; margin-bottom: 12px;">🌍</div>
         <h3 style="margin-bottom: 8px;">12 Leagues Covered</h3>
         <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
             Detailed fixture matrices, historical scores, standings, and stats covering England, Spain, Germany, Italy, France, Portugal, Netherlands, Turkey, Belgium, Scotland, Norway, and Saudi Arabia.
@@ -49,7 +48,6 @@
 
     <!-- Feature: 12 Factors -->
     <div class="card" style="margin-bottom: 0;">
-        <div style="font-size: 24px; margin-bottom: 12px;">📊</div>
         <h3 style="margin-bottom: 8px;">12 Analysis Factors</h3>
         <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
             Rigorous evaluations using recent form splits, home/away trends, defensive records, head-to-head ratios, rest timings, scoring densities, and city rivalries to form unbiased recommendations.
@@ -59,7 +57,6 @@
 
     <!-- Feature: Self-Calibrating -->
     <div class="card" style="margin-bottom: 0;">
-        <div style="font-size: 24px; margin-bottom: 12px;">🔄</div>
         <h3 style="margin-bottom: 8px;">Self-Calibrating Engine</h3>
         <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
             A feedback loop that matches predicted outcomes against actual finished results, dynamically recalibrating score weights over time to continuously tune model prediction accuracy.
@@ -73,7 +70,7 @@
     
     <!-- Quick System Guidelines -->
     <div class="card" style="margin-bottom: 0;">
-        <h3 class="card-title">📖 System Usage Guidelines</h3>
+        <h3 class="card-title">System Usage Guidelines</h3>
         <div style="display: flex; flex-direction: column; gap: 12px; font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
             <p>
                 <strong>1. Data Synchronization:</strong> Keep the database fresh. Smart Fetch is designed to conserve request limits on busy betting weeks. Click the <em>Refresh Data</em> button on the sidebar to check active calendars.
@@ -89,7 +86,7 @@
 
     <!-- DB Stats Metadata -->
     <div class="card" style="margin-bottom: 0; padding: 20px;">
-        <h3 class="card-title" style="margin-bottom: 16px; font-size: 14px;">📊 Database Metadata Overview</h3>
+        <h3 class="card-title" style="margin-bottom: 16px; font-size: 14px;">Database Metadata Overview</h3>
         <div style="display: flex; flex-direction: column; gap: 10px; font-size: 13px;">
             <div class="flex-between" style="border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
                 <span style="color: var(--text-secondary);">Tracked Leagues</span>

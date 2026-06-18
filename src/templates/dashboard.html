@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Dashboard — Footy Predict{% endblock %}
-{% block header_title %}⚡ Dashboard{% endblock %}
+{% block header_title %}Dashboard{% endblock %}
 
 {% block content %}
 <div style="margin-bottom: 32px;">
@@ -10,15 +10,15 @@
 </div>
 
 <!-- Quick Actions Strip -->
-<div style="display: flex; gap: 16px; margin-bottom: 32px;">
+<div style="display: flex; gap: 16px; margin-bottom: 32px; flex-wrap: wrap;">
     <button onclick="triggerGlobalFetch()" class="btn btn-primary">
-        <span>↻ Refresh Match Data</span>
+        <span>Refresh Match Data</span>
     </button>
     <a href="/parlay" class="btn btn-secondary">
-        <span>🎲 Open Parlay Builder</span>
+        <span>Open Parlay Builder</span>
     </a>
     <a href="/analysis" class="btn btn-secondary">
-        <span>🔍 Deep Dive Match Analysis</span>
+        <span>Deep Dive Match Analysis</span>
     </a>
 </div>
 
@@ -28,39 +28,44 @@
     <div>
         <div class="card">
             <div class="card-title">
-                <span>📅 Upcoming Matchweek Fixtures</span>
-                <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary);">Filtered by active leagues</span>
+                <span>Upcoming Matchweek Fixtures</span>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary);">Filtered by active leagues</span>
+                    <button id="upcoming-toggle" onclick="toggleCard('upcoming')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
+                </div>
             </div>
             
-            {% if matches %}
-            <table class="styled-table">
-                <thead>
-                    <tr>
-                        <th>Date & Time</th>
-                        <th>Match</th>
-                        <th>League</th>
-                        <th style="text-align: right;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for m in matches %}
-                    <tr>
-                        <td style="color: var(--text-secondary); font-size: 13px;">{{ m.date }}</td>
-                        <td style="font-weight: 600;">{{ m.home_team }} vs {{ m.away_team }}</td>
-                        <td><span class="badge badge-medium" style="background-color: var(--bg-elevated); color: var(--text-primary);">{{ m.league }}</span></td>
-                        <td style="text-align: right;">
-                            <a href="/analysis/match/{{ m.id }}" class="btn-text">Analyze →</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <div style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
-                <p style="font-size: 15px; margin-bottom: 8px;">No upcoming matches found in the next 7 days.</p>
-                <p style="font-size: 13px;">Try triggering a data fetch using the refresh button.</p>
+            <div id="upcoming-body">
+                {% if matches %}
+                <table class="styled-table">
+                    <thead>
+                        <tr>
+                            <th>Date & Time</th>
+                            <th>Match</th>
+                            <th>League</th>
+                            <th style="text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in matches %}
+                        <tr>
+                            <td style="color: var(--text-secondary); font-size: 13px;">{{ m.date }}</td>
+                            <td style="font-weight: 600;">{{ m.home_team }} vs {{ m.away_team }}</td>
+                            <td><span class="badge badge-medium" style="background-color: var(--bg-elevated); color: var(--text-primary); font-size: 10px;">{{ m.league }}</span></td>
+                            <td style="text-align: right;">
+                                <a href="/analysis/match/{{ m.id }}" class="btn-text">Analyze →</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <div style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
+                    <p style="font-size: 15px; margin-bottom: 8px;">No upcoming matches found in the next 7 days.</p>
+                    <p style="font-size: 13px;">Try triggering a data fetch using the refresh button.</p>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
     </div>
 
@@ -68,33 +73,40 @@
     <div>
         <div class="card">
             <div class="card-title">
-                <span>🎯 Top High-Confidence Picks</span>
+                <span>Top High-Confidence Picks</span>
+                <button id="picks-toggle" onclick="toggleCard('picks')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
             </div>
             
-            {% if top_picks %}
-            <div style="display: flex; flex-direction: column; gap: 14px;">
-                {% for p in top_picks %}
-                <div style="background-color: var(--bg-surface-hover); padding: 16px; border-radius: var(--border-radius-lg); border-left: 4px solid var(--accent-emerald);">
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">{{ p.league }}</div>
-                    <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">{{ p.home_team }} vs {{ p.away_team }}</div>
-                    <div class="flex-between">
-                        <span style="font-weight: 700; color: var(--accent-emerald);">{{ p.market_name }}: {{ p.pick }}</span>
-                        <span class="badge badge-high">{{ (p.probability * 100)|int }}% Prob</span>
+            <div id="picks-body">
+                {% if top_picks %}
+                <div style="display: flex; flex-direction: column; gap: 14px;">
+                    {% for p in top_picks %}
+                    <div style="background-color: var(--bg-surface-hover); padding: 16px; border-radius: var(--border-radius-lg); border-left: 4px solid var(--accent-emerald);">
+                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">{{ p.league }}</div>
+                        <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">{{ p.home_team }} vs {{ p.away_team }}</div>
+                        <div class="flex-between">
+                            <span style="font-weight: 700; color: var(--accent-emerald);">{{ p.market_name }}: {{ p.pick }}</span>
+                            <span class="badge badge-high">{{ (p.probability * 100)|int }}% Prob</span>
+                        </div>
                     </div>
+                    {% endfor %}
                 </div>
-                {% endfor %}
+                {% else %}
+                <div style="text-align: center; padding: 30px 0; color: var(--text-secondary); font-size: 14px;">
+                    No high-confidence picks available right now. Analyze matches or fetch new data first.
+                </div>
+                {% endif %}
             </div>
-            {% else %}
-            <div style="text-align: center; padding: 30px 0; color: var(--text-secondary); font-size: 14px;">
-                No high-confidence picks available right now. Analyze matches or fetch new data first.
-            </div>
-            {% endif %}
         </div>
         
         <!-- Database statistics overview -->
         <div class="card" style="padding: 20px;">
-            <div class="card-title" style="margin-bottom: 12px; font-size: 14px;">📊 Database Metadata</div>
-            <div style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+            <div class="card-title" style="margin-bottom: 12px; font-size: 14px;">
+                <span>Database Metadata</span>
+                <button id="meta-toggle" onclick="toggleCard('meta')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
+            </div>
+            
+            <div id="meta-body" style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
                 <div class="flex-between">
                     <span style="color: var(--text-secondary);">Tracked Leagues</span>
                     <span style="font-weight: 600;">{{ stats.leagues_count }}</span>
@@ -115,4 +127,39 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleCard(cardId) {
+        const bodyEl = document.getElementById(cardId + '-body');
+        const btnEl = document.getElementById(cardId + '-toggle');
+        const isHidden = bodyEl.style.display === "none";
+        
+        if (isHidden) {
+            bodyEl.style.display = "block";
+            btnEl.innerText = "Hide";
+            localStorage.setItem('dashboard_card_' + cardId + '_hidden', 'false');
+        } else {
+            bodyEl.style.display = "none";
+            btnEl.innerText = "Show";
+            localStorage.setItem('dashboard_card_' + cardId + '_hidden', 'true');
+        }
+    }
+
+    // Apply persisted toggle states on load
+    document.addEventListener("DOMContentLoaded", function() {
+        ['upcoming', 'picks', 'meta'].forEach(cardId => {
+            const bodyEl = document.getElementById(cardId + '-body');
+            const btnEl = document.getElementById(cardId + '-toggle');
+            if (bodyEl && btnEl) {
+                const isHidden = localStorage.getItem('dashboard_card_' + cardId + '_hidden') === 'true';
+                if (isHidden) {
+                    bodyEl.style.display = "none";
+                    btnEl.innerText = "Show";
+                }
+            }
+        });
+    });
+</script>
 {% endblock %}

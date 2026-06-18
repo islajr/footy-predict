@@ -12,50 +12,42 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <a href="/" class="logo-container" style="display: flex; align-items: center; gap: 12px; margin-bottom: 32px; padding-left: 8px; text-decoration: none;">
-                <span class="logo-emoji">⚽</span>
                 <span class="logo-text" style="color: var(--text-primary);">Footy Predict</span>
             </a>
             
             <nav class="nav-menu">
                 <li class="nav-item {% if active_page == 'home' %}active{% endif %}">
                     <a href="/">
-                        <span class="nav-icon">🏠</span>
                         <span>Home</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
                     <a href="/dashboard">
-                        <span class="nav-icon">⚡</span>
                         <span>Dashboard</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'analysis' %}active{% endif %}">
                     <a href="/analysis">
-                        <span class="nav-icon">🔍</span>
                         <span>Analysis</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'picks' %}active{% endif %}">
                     <a href="/picks">
-                        <span class="nav-icon">🎯</span>
                         <span>Picks</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'parlay' %}active{% endif %}">
                     <a href="/parlay">
-                        <span class="nav-icon">🎲</span>
                         <span>Parlay Builder</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'statistics' %}active{% endif %}">
                     <a href="/statistics">
-                        <span class="nav-icon">📊</span>
                         <span>Statistics</span>
                     </a>
                 </li>
                 <li class="nav-item {% if active_page == 'settings' %}active{% endif %}">
                     <a href="/settings">
-                        <span class="nav-icon">⚙️</span>
                         <span>Settings</span>
                     </a>
                 </li>
@@ -84,7 +76,7 @@
 
                     <!-- Theme Toggle Switch -->
                     <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme" style="background-color: var(--bg-surface-hover); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: var(--transition-smooth); box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <span>🌓 Toggle Theme</span>
+                        <span>Toggle Theme</span>
                     </button>
                 </div>
             </header>
@@ -92,7 +84,7 @@
             <!-- Data Freshness Banner -->
             {% if freshness %}
             <div class="freshness-banner {% if freshness.hours > 48 %}freshness-red{% elif freshness.hours > 24 %}freshness-amber{% else %}freshness-green{% endif %}">
-                <span>⚽ Database last refreshed {{ freshness.label }}.</span>
+                <span>Database last refreshed {{ freshness.label }}.</span>
                 {% if freshness.hours > 24 %}
                 <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600;">Refresh now</a>
                 {% endif %}

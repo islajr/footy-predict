@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}{{ analysis.home_team }} vs {{ analysis.away_team }} — Footy Predict{% endblock %}
-{% block header_title %}🔍 Match Deep Dive{% endblock %}
+{% block header_title %}Match Deep Dive{% endblock %}
 
 {% block content %}
 <div style="margin-bottom: 24px;">
@@ -57,7 +57,7 @@
 <div class="dashboard-grid">
     <!-- Left Panel: 12 Factors Visual Bar Charts -->
     <div class="card">
-        <h2 style="font-size: 18px; margin-bottom: 20px;">📊 Statistical Factor Scoring</h2>
+        <h2 style="font-size: 18px; margin-bottom: 20px;">Statistical Factor Scoring</h2>
         <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 24px;">
             Scores represent biases from -1.0 (strongly favors away) to +1.0 (strongly favors home). Gray represents neutral.
         </p>
@@ -82,7 +82,7 @@
     <!-- Right Panel: Market Recommendations List -->
     <div>
         <div class="card">
-            <h2 style="font-size: 18px; margin-bottom: 20px;">🎯 Market Recommendations</h2>
+            <h2 style="font-size: 18px; margin-bottom: 20px;">Market Recommendations</h2>
             <div style="display: flex; flex-direction: column; gap: 16px;">
                 {% for r in analysis.market_recommendations %}
                 <div style="border: 1px solid var(--border-color); border-radius: var(--border-radius-lg); padding: 16px; background-color: var(--bg-surface-hover);">

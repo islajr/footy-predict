@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Matchweek Analysis — Footy Predict{% endblock %}
-{% block header_title %}🔍 Match Analysis{% endblock %}
+{% block header_title %}Match Analysis{% endblock %}
 
 {% block content %}
 <div style="margin-bottom: 32px;">
@@ -41,7 +41,7 @@
 
             <!-- Meta details -->
             <div class="match-meta">
-                <span>📅 {{ a.match_date }}</span>
+                <span>{{ a.match_date }}</span>
                 <span style="font-weight: 600; color: {% if a.overall_home_score > 0.1 %}var(--accent-emerald){% elif a.overall_home_score < -0.1 %}var(--accent-coral){% else %}var(--text-secondary){% endif %};">
                     Score Bias: {{ "%.2f"|format(a.overall_home_score) }}
                 </span>
