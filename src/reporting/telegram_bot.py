@@ -357,15 +357,18 @@ class FootyBot:
             api_client = APIFootballClient(self.db)
             fdo_client = FootballDataOrgClient(self.db)
 
+            api_key = self.db.get_setting("api_football_key") or API_FOOTBALL.key
+            fdo_key = self.db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
+
             total = 0
             errors: list[str] = []
 
             for slug, lg in LEAGUES.items():
                 try:
-                    if lg.has_fdo and FOOTBALL_DATA_ORG.key:
+                    if lg.has_fdo and fdo_key:
                         count = await fdo_client.fetch_and_store_fixtures(slug)
                         await fdo_client.fetch_and_store_standings(slug)
-                    elif API_FOOTBALL.key:
+                    elif api_key:
                         count = await api_client.fetch_and_store_fixtures(slug)
                         await api_client.fetch_and_store_standings(slug)
                     else:

@@ -100,6 +100,9 @@ def fetch(ctx: click.Context, league: str | None) -> None:
         api_client = APIFootballClient(db)
         fdo_client = FootballDataOrgClient(db)
 
+        api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
+        fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
+
         target_leagues = [LEAGUES[league]] if league else list(LEAGUES.values())
 
         with Progress(
@@ -112,12 +115,12 @@ def fetch(ctx: click.Context, league: str | None) -> None:
 
                 try:
                     # Use FDO for leagues it covers (fixtures + standings)
-                    if lg.has_fdo and FOOTBALL_DATA_ORG.key:
+                    if lg.has_fdo and fdo_key:
                         count = await fdo_client.fetch_and_store_fixtures(lg.slug)
                         total_fixtures += count
                         st_count = await fdo_client.fetch_and_store_standings(lg.slug)
                         total_standings += st_count
-                    elif API_FOOTBALL.key:
+                    elif api_key:
                         count = await api_client.fetch_and_store_fixtures(lg.slug)
                         total_fixtures += count
                         st_count = await api_client.fetch_and_store_standings(lg.slug)
@@ -126,7 +129,7 @@ def fetch(ctx: click.Context, league: str | None) -> None:
                         console.print(f"[yellow]⚠ No API key for {lg.name} — skipping[/yellow]")
 
                     # Team stats from API-Football (for all leagues)
-                    if API_FOOTBALL.key:
+                    if api_key:
                         await api_client.fetch_and_store_team_stats(lg.slug)
 
                 except Exception as e:
@@ -135,7 +138,7 @@ def fetch(ctx: click.Context, league: str | None) -> None:
                 progress.update(task_id, completed=True)
 
         # Show quota status
-        quota = api_client.get_quota_status() if API_FOOTBALL.key else {}
+        quota = api_client.get_quota_status() if api_key else {}
 
         console.print()
         console.print(f"[green]✓ Fetched {total_fixtures} fixtures, {total_standings} standings[/green]")

@@ -114,6 +114,9 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
         api_client = APIFootballClient(db)
         fdo_client = FootballDataOrgClient(db)
 
+        api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
+        fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
+
         if league_slug:
             if league_slug not in LEAGUES:
                 task["status"] = "failed"
@@ -151,13 +154,13 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
 
             try:
                 # Use FDO for leagues it covers (fixtures + standings)
-                if lg.has_fdo and FOOTBALL_DATA_ORG.key:
+                if lg.has_fdo and fdo_key:
                     task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from Football-Data.org...")
                     count = await fdo_client.fetch_and_store_fixtures(lg.slug)
                     total_fixtures += count
                     st_count = await fdo_client.fetch_and_store_standings(lg.slug)
                     total_standings += st_count
-                elif API_FOOTBALL.key:
+                elif api_key:
                     task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from API-Football...")
                     count = await api_client.fetch_and_store_fixtures(lg.slug)
                     total_fixtures += count
@@ -167,7 +170,7 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
                     task["logs"].append(f"[{lg.name}] WARNING: No API keys configured for league fetching.")
 
                 # Team stats from API-Football (for all leagues)
-                if API_FOOTBALL.key:
+                if api_key:
                     task["logs"].append(f"[{lg.name}] Fetching team seasonal statistics...")
                     await api_client.fetch_and_store_team_stats(lg.slug)
 
