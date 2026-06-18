@@ -29,3 +29,10 @@ def init_app() -> Database:
     db = Database()
     db.seed_leagues()
     return db
+
+
+def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
+    """Start the uvicorn server for the FastAPI API layer."""
+    import uvicorn
+    uvicorn.run("src.api.app:app", host=host, port=port, reload=True)
+

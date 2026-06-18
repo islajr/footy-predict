@@ -616,8 +616,24 @@ def bot_start(ctx: click.Context) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
+#  serve — Web Application Launcher
+# ═══════════════════════════════════════════════════════════════
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", help="Host interface to bind to.")
+@click.option("--port", default=8000, type=int, help="Port to run the server on.")
+def serve(host: str, port: int) -> None:
+    """Start the FastAPI local web application server."""
+    console.print(f"[green]🚀 Starting Footy Predict Server on http://{host}:{port}...[/green]")
+    import uvicorn
+    # Use string path for hot reloading to function correctly
+    uvicorn.run("src.api.app:app", host=host, port=port, reload=True)
+
+
+# ═══════════════════════════════════════════════════════════════
 #  Prediction storage helper
 # ═══════════════════════════════════════════════════════════════
+
 
 def _store_predictions(db, analyses) -> int:
     """Store analysis results as predictions in the database.
