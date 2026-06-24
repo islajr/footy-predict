@@ -206,7 +206,7 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
 
 
 @router.post("")
-def trigger_fetch(
+async def trigger_fetch(
     league: str | None = Query(None, description="League slug filter"),
     db: Database = Depends(get_db),
 ):
