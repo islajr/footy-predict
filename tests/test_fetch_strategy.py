@@ -20,10 +20,12 @@ def temp_db(tmp_path):
 
 @pytest.fixture
 def client(temp_db):
+    app.state.db = temp_db
     app.dependency_overrides[get_db] = lambda: temp_db
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+    app.state.db = None
 
 
 def test_smart_fetch_plan_empty_db(temp_db):

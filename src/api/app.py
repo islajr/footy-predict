@@ -18,8 +18,9 @@ logger = logging.getLogger("footy.api")
 async def lifespan(app: FastAPI):
     """Lifecycle events: boots database and sets it on app state."""
     logger.info("Initializing Footy Predict database...")
-    db = init_app()
-    app.state.db = db
+    if not hasattr(app.state, "db") or app.state.db is None:
+        db = init_app()
+        app.state.db = db
     yield
     logger.info("Footy Predict database shutting down.")
 

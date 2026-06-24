@@ -185,7 +185,7 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
         task["logs"].append(task["progress"])
         try:
             recorder = ResultRecorder(db)
-            record_summary = recorder.auto_record_all()
+            record_summary = await asyncio.to_thread(recorder.auto_record_all)
             task["logs"].append(
                 f"Auto-recorded results: {record_summary.get('matches_processed', 0)} matches, "
                 f"{record_summary.get('correct', 0)} correct, {record_summary.get('incorrect', 0)} incorrect."
