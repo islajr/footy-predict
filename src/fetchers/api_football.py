@@ -395,7 +395,7 @@ class APIFootballClient:
             Number of fixtures upserted.
         """
         league = self._get_league(league_slug)
-        season = league.get_current_season()
+        season = self._get_season(league)
 
         # Ensure league is in DB
         league_id = self.db.upsert_league(
@@ -408,7 +408,17 @@ class APIFootballClient:
             tier=league.tier,
         )
 
-        fixtures = await self.get_fixtures(league_id=league.api_football_id, season=season)
+        try:
+            fixtures = await self.get_fixtures(league_id=league.api_football_id, season=season)
+        except APIFootballError as exc:
+            if "Free plans do not have access" in str(exc) and season != 2024:
+                logger.warning("Free plan detected. Retrying with season 2024.")
+                self.db.set_setting("target_season", "2024")
+                season = 2024
+                fixtures = await self.get_fixtures(league_id=league.api_football_id, season=season)
+            else:
+                raise
+
         count = 0
 
         for fix in fixtures:
@@ -444,7 +454,7 @@ class APIFootballClient:
                 ht = score.get("halftime", {})
 
                 # Build season label
-                season_label = league.get_season_label()
+                season_label = league.get_season_label(season)
 
                 self.db.upsert_match(
                     league_id=league_id,
@@ -492,8 +502,7 @@ class APIFootballClient:
             Number of standing entries upserted.
         """
         league = self._get_league(league_slug)
-        season = league.get_current_season()
-        season_label = league.get_season_label()
+        season = self._get_season(league)
 
         league_id = self.db.upsert_league(
             name=league.name,
@@ -505,7 +514,18 @@ class APIFootballClient:
             tier=league.tier,
         )
 
-        standings = await self.get_standings(league.api_football_id, season)
+        try:
+            standings = await self.get_standings(league.api_football_id, season)
+        except APIFootballError as exc:
+            if "Free plans do not have access" in str(exc) and season != 2024:
+                logger.warning("Free plan detected. Retrying with season 2024.")
+                self.db.set_setting("target_season", "2024")
+                season = 2024
+                standings = await self.get_standings(league.api_football_id, season)
+            else:
+                raise
+
+        season_label = league.get_season_label(season)
         count = 0
 
         for entry in standings:
@@ -562,8 +582,7 @@ class APIFootballClient:
             Number of teams whose stats were stored.
         """
         league = self._get_league(league_slug)
-        season = league.get_current_season()
-        season_label = league.get_season_label()
+        season = self._get_season(league)
 
         league_id = self.db.upsert_league(
             name=league.name,
@@ -589,14 +608,29 @@ class APIFootballClient:
                 continue
 
             try:
-                stats = await self.get_team_statistics(
-                    team_id=api_id,
-                    league_id=league.api_football_id,
-                    season=season,
-                )
+                try:
+                    stats = await self.get_team_statistics(
+                        team_id=api_id,
+                        league_id=league.api_football_id,
+                        season=season,
+                    )
+                except APIFootballError as exc:
+                    if "Free plans do not have access" in str(exc) and season != 2024:
+                        logger.warning("Free plan detected. Retrying with season 2024.")
+                        self.db.set_setting("target_season", "2024")
+                        season = 2024
+                        stats = await self.get_team_statistics(
+                            team_id=api_id,
+                            league_id=league.api_football_id,
+                            season=season,
+                        )
+                    else:
+                        raise
 
                 if not stats:
                     continue
+
+                season_label = league.get_season_label(season)
 
                 # Extract nested statistics
                 fixtures_stats = stats.get("fixtures", {})
@@ -779,6 +813,16 @@ class APIFootballClient:
                 f"Available: {', '.join(sorted(LEAGUES.keys()))}"
             )
         return league
+
+    def _get_season(self, league: LeagueConfig) -> int:
+        """Resolve the season key, checking database target_season setting first."""
+        target = self.db.get_setting("target_season")
+        if target:
+            try:
+                return int(target)
+            except ValueError:
+                pass
+        return league.get_current_season()
 
     @staticmethod
     def _map_fixture_status(short_status: str) -> str:

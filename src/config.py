@@ -147,9 +147,10 @@ class LeagueConfig:
         # European: before August → still in the season that started last year
         return now.year if now.month >= 8 else now.year - 1
 
-    def get_season_label(self) -> str:
+    def get_season_label(self, season: int | None = None) -> str:
         """Human-readable season label, e.g. '2025-26' or '2026'."""
-        season = self.get_current_season()
+        if season is None:
+            season = self.get_current_season()
         if self.season_format == "calendar":
             return str(season)
         return f"{season}-{str(season + 1)[-2:]}"
