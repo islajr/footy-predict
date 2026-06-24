@@ -97,48 +97,46 @@ def fetch(ctx: click.Context, league: str | None) -> None:
         total_fixtures = 0
         total_standings = 0
 
-        api_client = APIFootballClient(db)
-        fdo_client = FootballDataOrgClient(db)
-
         api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
         fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
 
         target_leagues = [LEAGUES[league]] if league else list(LEAGUES.values())
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            for lg in target_leagues:
-                task_id = progress.add_task(f"Fetching {lg.name}...", total=None)
+        async with APIFootballClient(db) as api_client, FootballDataOrgClient(db) as fdo_client:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                for lg in target_leagues:
+                    task_id = progress.add_task(f"Fetching {lg.name}...", total=None)
 
-                try:
-                    # Use FDO for leagues it covers (fixtures + standings)
-                    if lg.has_fdo and fdo_key:
-                        count = await fdo_client.fetch_and_store_fixtures(lg.slug)
-                        total_fixtures += count
-                        st_count = await fdo_client.fetch_and_store_standings(lg.slug)
-                        total_standings += st_count
-                    elif api_key:
-                        count = await api_client.fetch_and_store_fixtures(lg.slug)
-                        total_fixtures += count
-                        st_count = await api_client.fetch_and_store_standings(lg.slug)
-                        total_standings += st_count
-                    else:
-                        console.print(f"[yellow]⚠ No API key for {lg.name} — skipping[/yellow]")
+                    try:
+                        # Use FDO for leagues it covers (fixtures + standings)
+                        if lg.has_fdo and fdo_key:
+                            count = await fdo_client.fetch_and_store_fixtures(lg.slug)
+                            total_fixtures += count
+                            st_count = await fdo_client.fetch_and_store_standings(lg.slug)
+                            total_standings += st_count
+                        elif api_key:
+                            count = await api_client.fetch_and_store_fixtures(lg.slug)
+                            total_fixtures += count
+                            st_count = await api_client.fetch_and_store_standings(lg.slug)
+                            total_standings += st_count
+                        else:
+                            console.print(f"[yellow]⚠ No API key for {lg.name} — skipping[/yellow]")
 
-                    # Team stats from API-Football (for all leagues)
-                    if api_key:
-                        await api_client.fetch_and_store_team_stats(lg.slug)
+                        # Team stats from API-Football (for all leagues)
+                        if api_key:
+                            await api_client.fetch_and_store_team_stats(lg.slug)
 
-                except Exception as e:
-                    console.print(f"[red]✗ {lg.name}: {e}[/red]")
+                    except Exception as e:
+                        console.print(f"[red]✗ {lg.name}: {e}[/red]")
 
-                progress.update(task_id, completed=True)
+                    progress.update(task_id, completed=True)
 
-        # Show quota status
-        quota = api_client.get_quota_status() if api_key else {}
+            # Show quota status
+            quota = api_client.get_quota_status() if api_key else {}
 
         console.print()
         console.print(f"[green]✓ Fetched {total_fixtures} fixtures, {total_standings} standings[/green]")

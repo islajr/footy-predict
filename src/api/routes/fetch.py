@@ -111,9 +111,6 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
     """Worker function executing the async fetches for leagues."""
     task = FETCH_TASKS[task_id]
     try:
-        api_client = APIFootballClient(db)
-        fdo_client = FootballDataOrgClient(db)
-
         api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
         fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
 
@@ -148,38 +145,39 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
         total_fixtures = 0
         total_standings = 0
 
-        for i, lg in enumerate(target_leagues, 1):
-            task["progress"] = f"Fetching {lg.name} ({i}/{task['total']})..."
-            task["logs"].append(task["progress"])
+        async with APIFootballClient(db) as api_client, FootballDataOrgClient(db) as fdo_client:
+            for i, lg in enumerate(target_leagues, 1):
+                task["progress"] = f"Fetching {lg.name} ({i}/{task['total']})..."
+                task["logs"].append(task["progress"])
 
-            try:
-                # Use FDO for leagues it covers (fixtures + standings)
-                if lg.has_fdo and fdo_key:
-                    task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from Football-Data.org...")
-                    count = await fdo_client.fetch_and_store_fixtures(lg.slug)
-                    total_fixtures += count
-                    st_count = await fdo_client.fetch_and_store_standings(lg.slug)
-                    total_standings += st_count
-                elif api_key:
-                    task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from API-Football...")
-                    count = await api_client.fetch_and_store_fixtures(lg.slug)
-                    total_fixtures += count
-                    st_count = await api_client.fetch_and_store_standings(lg.slug)
-                    total_standings += st_count
-                else:
-                    task["logs"].append(f"[{lg.name}] WARNING: No API keys configured for league fetching.")
+                try:
+                    # Use FDO for leagues it covers (fixtures + standings)
+                    if lg.has_fdo and fdo_key:
+                        task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from Football-Data.org...")
+                        count = await fdo_client.fetch_and_store_fixtures(lg.slug)
+                        total_fixtures += count
+                        st_count = await fdo_client.fetch_and_store_standings(lg.slug)
+                        total_standings += st_count
+                    elif api_key:
+                        task["logs"].append(f"[{lg.name}] Fetching fixtures & standings from API-Football...")
+                        count = await api_client.fetch_and_store_fixtures(lg.slug)
+                        total_fixtures += count
+                        st_count = await api_client.fetch_and_store_standings(lg.slug)
+                        total_standings += st_count
+                    else:
+                        task["logs"].append(f"[{lg.name}] WARNING: No API keys configured for league fetching.")
 
-                # Team stats from API-Football (for all leagues)
-                if api_key:
-                    task["logs"].append(f"[{lg.name}] Fetching team seasonal statistics...")
-                    await api_client.fetch_and_store_team_stats(lg.slug)
+                    # Team stats from API-Football (for all leagues)
+                    if api_key:
+                        task["logs"].append(f"[{lg.name}] Fetching team seasonal statistics...")
+                        await api_client.fetch_and_store_team_stats(lg.slug)
 
-            except Exception as e:
-                err_msg = f"[{lg.name}] ERROR: {str(e)}"
-                logger.error(err_msg, exc_info=True)
-                task["logs"].append(err_msg)
+                except Exception as e:
+                    err_msg = f"[{lg.name}] ERROR: {str(e)}"
+                    logger.error(err_msg, exc_info=True)
+                    task["logs"].append(err_msg)
 
-            task["completed"] = i
+                task["completed"] = i
 
         # Run auto-recorder on completion
         task["progress"] = "Evaluating prediction results for finished matches..."
