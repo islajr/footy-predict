@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Footy Predict{% endblock %}</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
     {% block head %}{% endblock %}
 </head>
 <body>
@@ -128,10 +138,24 @@
                 <!-- Logs appended here -->
             </div>
             
-            <div style="display: flex; justify-content: flex-end; margin-top: 16px;">
+            <div id="fetch-modal-actions" style="display: flex; justify-content: flex-end; margin-top: 16px; gap: 12px;">
+                <button id="fetch-modal-cancel-btn" onclick="cancelFetchSync()" class="btn btn-danger" style="padding: 8px 16px;">Cancel Sync</button>
+                <button id="fetch-modal-minimize-btn" onclick="minimizeFetchModal()" class="btn btn-secondary" style="padding: 8px 16px;">Run in Background</button>
                 <button id="fetch-modal-close-btn" onclick="closeFetchModal(true)" class="btn btn-primary" style="display: none; padding: 8px 16px;">Close & Reload</button>
             </div>
         </div>
+    </div>
+
+    <!-- Floating Background Sync Status Banner -->
+    <div id="fetch-floating-status" style="display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9998; width: 320px; padding: 14px 18px; border-radius: var(--border-radius-xl); background-color: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--card-shadow); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); align-items: center; justify-content: space-between; gap: 12px; transition: var(--transition-smooth); animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
+        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex-grow: 1;">
+            <div id="fetch-floating-spinner" class="spinner" style="width: 18px; height: 18px; border: 2px solid var(--border-color); border-top: 2px solid var(--accent-emerald); border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0;"></div>
+            <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0; flex-grow: 1;">
+                <span style="font-size: 13px; font-weight: 600; color: var(--text-primary);">Syncing Data...</span>
+                <span id="fetch-floating-progress" style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; width: 100%;">Initializing...</span>
+            </div>
+        </div>
+        <button onclick="reopenFetchModal()" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; border-radius: var(--border-radius-md); font-weight: 600; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">View</button>
     </div>
 
     <!-- Global Layout Scripts -->
@@ -157,20 +181,227 @@
         }
 
         let fetchEventSource = null;
+        let activeTaskId = null;
 
-        function triggerGlobalFetch() {
-            // Show modal
+        document.addEventListener("DOMContentLoaded", function() {
+            checkActiveSync();
+        });
+
+        function checkActiveSync() {
+            const taskId = localStorage.getItem('active_fetch_task_id');
+            if (!taskId) return;
+
+            fetch(`/api/v1/fetch/status/${taskId}`)
+                .then(r => {
+                    if (!r.ok) throw new Error("Not running");
+                    return r.json();
+                })
+                .then(data => {
+                    if (data.status === "running") {
+                        activeTaskId = taskId;
+                        showFloatingStatus(data.progress || "Sync in progress...");
+                    } else {
+                        localStorage.removeItem('active_fetch_task_id');
+                    }
+                })
+                .catch(e => {
+                    localStorage.removeItem('active_fetch_task_id');
+                });
+        }
+
+        function showFloatingStatus(progressText) {
+            const floatingBanner = document.getElementById('fetch-floating-status');
+            const floatingProgress = document.getElementById('fetch-floating-progress');
+            if (floatingBanner) {
+                floatingBanner.style.display = "flex";
+            }
+            if (floatingProgress && progressText) {
+                floatingProgress.innerText = progressText;
+            }
+        }
+
+        function minimizeFetchModal() {
+            document.getElementById('fetch-progress-modal').style.display = "none";
+            if (activeTaskId) {
+                fetch(`/api/v1/fetch/status/${activeTaskId}`)
+                    .then(r => r.ok ? r.json() : null)
+                    .then(data => {
+                        const progress = data ? data.progress : "Sync in progress...";
+                        showFloatingStatus(progress);
+                    })
+                    .catch(() => {
+                        showFloatingStatus("Sync in progress...");
+                    });
+            }
+        }
+
+        function reopenFetchModal() {
             const modal = document.getElementById('fetch-progress-modal');
             const logsContainer = document.getElementById('fetch-modal-logs');
             const progressEl = document.getElementById('fetch-modal-progress');
             const statusEl = document.getElementById('fetch-modal-status');
             const closeBtn = document.getElementById('fetch-modal-close-btn');
+            const cancelBtn = document.getElementById('fetch-modal-cancel-btn');
+            const minimizeBtn = document.getElementById('fetch-modal-minimize-btn');
+            const floatingBanner = document.getElementById('fetch-floating-status');
 
+            if (floatingBanner) {
+                floatingBanner.style.display = "none";
+            }
             modal.style.display = "flex";
+
+            if (activeTaskId) {
+                if (fetchEventSource === null) {
+                    logsContainer.innerHTML = "";
+                    statusEl.className = "badge badge-medium";
+                    statusEl.innerText = "RUNNING";
+                    cancelBtn.style.display = "inline-block";
+                    minimizeBtn.style.display = "inline-block";
+                    closeBtn.style.display = "none";
+                    connectToSyncStream(activeTaskId);
+                }
+            }
+        }
+
+        function cancelFetchSync() {
+            if (!activeTaskId) return;
+            const logsContainer = document.getElementById('fetch-modal-logs');
+            const statusEl = document.getElementById('fetch-modal-status');
+            const cancelBtn = document.getElementById('fetch-modal-cancel-btn');
+            const minimizeBtn = document.getElementById('fetch-modal-minimize-btn');
+            const closeBtn = document.getElementById('fetch-modal-close-btn');
+            const floatingBanner = document.getElementById('fetch-floating-status');
+
+            logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Cancelling synchronization...</div>";
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+
+            fetch(`/api/v1/fetch/cancel/${activeTaskId}`, { method: 'POST' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === "cancelled") {
+                        statusEl.className = "badge badge-low";
+                        statusEl.innerText = "CANCELLED";
+                        cancelBtn.style.display = "none";
+                        minimizeBtn.style.display = "none";
+                        closeBtn.style.display = "block";
+                        if (floatingBanner) floatingBanner.style.display = "none";
+                        if (fetchEventSource) {
+                            fetchEventSource.close();
+                            fetchEventSource = null;
+                        }
+                        activeTaskId = null;
+                        localStorage.removeItem('active_fetch_task_id');
+                    }
+                })
+                .catch(e => {
+                    logsContainer.innerHTML += `<div style="color: var(--accent-coral);">[ERROR] Cancel failed: ${e.message}</div>`;
+                });
+        }
+
+        function connectToSyncStream(taskId) {
+            if (fetchEventSource !== null) return;
+            
+            const logsContainer = document.getElementById('fetch-modal-logs');
+            const progressEl = document.getElementById('fetch-modal-progress');
+            const statusEl = document.getElementById('fetch-modal-status');
+            const closeBtn = document.getElementById('fetch-modal-close-btn');
+            const cancelBtn = document.getElementById('fetch-modal-cancel-btn');
+            const minimizeBtn = document.getElementById('fetch-modal-minimize-btn');
+            const floatingBanner = document.getElementById('fetch-floating-status');
+            const floatingProgress = document.getElementById('fetch-floating-progress');
+
+            fetchEventSource = new EventSource(`/api/v1/fetch/stream/${taskId}`);
+
+            fetchEventSource.onmessage = function(event) {
+                try {
+                    const payload = JSON.parse(event.data);
+
+                    if (payload.log) {
+                        const logDiv = document.createElement('div');
+                        logDiv.innerText = payload.log;
+                        logsContainer.appendChild(logDiv);
+                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                    }
+
+                    if (payload.progress) {
+                        progressEl.innerText = payload.progress;
+                        if (floatingProgress) {
+                            floatingProgress.innerText = payload.progress;
+                        }
+                    }
+
+                    if (payload.done) {
+                        statusEl.className = "badge badge-high";
+                        statusEl.innerText = "SUCCESS";
+                        logsContainer.innerHTML += "<div style='color: white; font-weight: bold;'>[SYSTEM] Synchronization complete!</div>";
+                        logsContainer.scrollTop = logsContainer.scrollHeight;
+                        cancelBtn.style.display = "none";
+                        minimizeBtn.style.display = "none";
+                        closeBtn.style.display = "block";
+                        if (floatingBanner) floatingBanner.style.display = "none";
+                        fetchEventSource.close();
+                        fetchEventSource = null;
+                        activeTaskId = null;
+                        localStorage.removeItem('active_fetch_task_id');
+                    } else if (payload.status === "failed") {
+                        statusEl.className = "badge badge-low";
+                        statusEl.innerText = "FAILED";
+                        cancelBtn.style.display = "none";
+                        minimizeBtn.style.display = "none";
+                        closeBtn.style.display = "block";
+                        if (floatingBanner) floatingBanner.style.display = "none";
+                        fetchEventSource.close();
+                        fetchEventSource = null;
+                        activeTaskId = null;
+                        localStorage.removeItem('active_fetch_task_id');
+                    }
+                } catch (e) {
+                    console.error("Error parsing event data", e);
+                }
+            };
+
+            fetchEventSource.onerror = function(err) {
+                console.error("EventSource error", err);
+                logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Stream disconnected. Fetch running in background.</div>";
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+                cancelBtn.style.display = "none";
+                minimizeBtn.style.display = "none";
+                closeBtn.style.display = "block";
+                if (fetchEventSource) fetchEventSource.close();
+                fetchEventSource = null;
+            };
+        }
+
+        function triggerGlobalFetch() {
+            const modal = document.getElementById('fetch-progress-modal');
+            const logsContainer = document.getElementById('fetch-modal-logs');
+            const progressEl = document.getElementById('fetch-modal-progress');
+            const statusEl = document.getElementById('fetch-modal-status');
+            const closeBtn = document.getElementById('fetch-modal-close-btn');
+            const cancelBtn = document.getElementById('fetch-modal-cancel-btn');
+            const minimizeBtn = document.getElementById('fetch-modal-minimize-btn');
+            const floatingBanner = document.getElementById('fetch-floating-status');
+
+            if (floatingBanner) {
+                floatingBanner.style.display = "none";
+            }
+            modal.style.display = "flex";
+
+            if (fetchEventSource !== null) {
+                return;
+            }
+
+            if (activeTaskId !== null) {
+                reopenFetchModal();
+                return;
+            }
+
             logsContainer.innerHTML = "<div>[SYSTEM] Sending synchronization request...</div>";
             progressEl.innerText = "Initializing connection...";
             statusEl.className = "badge badge-medium";
             statusEl.innerText = "RUNNING";
+            cancelBtn.style.display = "inline-block";
+            minimizeBtn.style.display = "inline-block";
             closeBtn.style.display = "none";
 
             fetch('/api/v1/fetch', { method: 'POST' })
@@ -180,56 +411,18 @@
                 })
                 .then(data => {
                     const taskId = data.task_id;
+                    activeTaskId = taskId;
+                    localStorage.setItem('active_fetch_task_id', taskId);
                     logsContainer.innerHTML += `<div>[SYSTEM] Task started (ID: ${taskId}). Opening stream...</div>`;
                     
-                    // Connect to SSE stream
-                    fetchEventSource = new EventSource(`/api/v1/fetch/stream/${taskId}`);
-                    
-                    fetchEventSource.onmessage = function(event) {
-                        try {
-                            const payload = JSON.parse(event.data);
-                            
-                            if (payload.log) {
-                                const logDiv = document.createElement('div');
-                                logDiv.innerText = payload.log;
-                                logsContainer.appendChild(logDiv);
-                                logsContainer.scrollTop = logsContainer.scrollHeight;
-                            }
-                            
-                            if (payload.progress) {
-                                progressEl.innerText = payload.progress;
-                            }
-                            
-                            if (payload.done) {
-                                statusEl.className = "badge badge-high";
-                                statusEl.innerText = "SUCCESS";
-                                logsContainer.innerHTML += "<div style='color: white; font-weight: bold;'>[SYSTEM] Synchronization complete!</div>";
-                                logsContainer.scrollTop = logsContainer.scrollHeight;
-                                closeBtn.style.display = "block";
-                                fetchEventSource.close();
-                            } else if (payload.status === "failed") {
-                                statusEl.className = "badge badge-low";
-                                statusEl.innerText = "FAILED";
-                                closeBtn.style.display = "block";
-                                fetchEventSource.close();
-                            }
-                        } catch (e) {
-                            console.error("Error parsing event data", e);
-                        }
-                    };
-
-                    fetchEventSource.onerror = function(err) {
-                        console.error("EventSource error", err);
-                        logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Stream disconnected. Fetch running in background.</div>";
-                        logsContainer.scrollTop = logsContainer.scrollHeight;
-                        closeBtn.style.display = "block";
-                        if (fetchEventSource) fetchEventSource.close();
-                    };
+                    connectToSyncStream(taskId);
                 })
                 .catch(e => {
                     logsContainer.innerHTML += `<div style="color: var(--accent-coral);">[ERROR] ${e.message}</div>`;
                     statusEl.className = "badge badge-low";
                     statusEl.innerText = "ERROR";
+                    cancelBtn.style.display = "none";
+                    minimizeBtn.style.display = "none";
                     closeBtn.style.display = "block";
                 });
         }
@@ -240,6 +433,7 @@
                 fetchEventSource.close();
                 fetchEventSource = null;
             }
+            activeTaskId = null;
             if (reload) {
                 window.location.reload();
             }

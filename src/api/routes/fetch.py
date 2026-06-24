@@ -21,6 +21,7 @@ router = APIRouter(prefix="/fetch", tags=["Fetch"])
 
 # In-memory store for tracking background fetch tasks
 FETCH_TASKS: dict[str, dict[str, Any]] = {}
+RUNNING_TASKS: dict[str, asyncio.Task] = {}
 
 
 def get_smart_fetch_plan(db: Database) -> dict[str, Any]:
@@ -198,11 +199,20 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
         task["progress"] = f"Fetch complete. Fixtures: {total_fixtures}, Standings: {total_standings}."
         task["logs"].append(task["progress"])
 
+    except asyncio.CancelledError:
+        logger.info(f"Background fetch task {task_id} was cancelled by user")
+        task["status"] = "failed"
+        task["progress"] = "Cancelled by user."
+        task["logs"].append("[SYSTEM] Synchronization cancelled by user.")
+        raise
     except Exception as e:
         logger.error(f"Background fetch task {task_id} failed", exc_info=True)
         task["status"] = "failed"
         task["progress"] = f"Fetch failed: {str(e)}"
         task["logs"].append(f"CRITICAL ERROR: {str(e)}")
+    finally:
+        if task_id in RUNNING_TASKS:
+            del RUNNING_TASKS[task_id]
 
 
 @router.post("")
@@ -222,7 +232,8 @@ async def trigger_fetch(
     }
 
     # Spawn task in the background
-    asyncio.create_task(run_background_fetch(task_id, league, db))
+    task = asyncio.create_task(run_background_fetch(task_id, league, db))
+    RUNNING_TASKS[task_id] = task
 
     return {"task_id": task_id, "status": "running"}
 
@@ -233,6 +244,20 @@ def get_fetch_status(task_id: str):
     if task_id not in FETCH_TASKS:
         return {"status": "not_found", "progress": "Task not found."}
     return FETCH_TASKS[task_id]
+
+
+@router.post("/cancel/{task_id}")
+def cancel_fetch(task_id: str):
+    """Cancel a running background fetch task."""
+    if task_id in RUNNING_TASKS:
+        task = RUNNING_TASKS[task_id]
+        task.cancel()
+        if task_id in FETCH_TASKS:
+            FETCH_TASKS[task_id]["status"] = "failed"
+            FETCH_TASKS[task_id]["progress"] = "Cancelled by user."
+            FETCH_TASKS[task_id]["logs"].append("[SYSTEM] Synchronization cancelled by user.")
+        return {"status": "cancelled"}
+    return {"status": "not_found", "detail": "Task is not running."}
 
 
 @router.get("/stream/{task_id}")

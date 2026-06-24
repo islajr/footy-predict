@@ -1,5 +1,7 @@
 import os
 import tempfile
+import asyncio
+from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 from src.api.app import app
@@ -254,6 +256,44 @@ def test_parlay_api_flow(client):
     # Verify deleted
     get_all_resp_after = client.get("/api/v1/parlay")
     assert not any(p["id"] == parlay_id for p in get_all_resp_after.json())
+
+
+def test_cancel_fetch_endpoint_not_running(client):
+    response = client.post("/api/v1/fetch/cancel/some-non-existent-task-id")
+    assert response.status_code == 200
+    assert response.json()["status"] == "not_found"
+
+
+def test_cancel_fetch_endpoint_running(client):
+    from src.api.routes.fetch import RUNNING_TASKS, FETCH_TASKS
+    from unittest.mock import MagicMock
+
+    task_id = "test-running-task-id"
+    mock_task = MagicMock()
+    RUNNING_TASKS[task_id] = mock_task
+    FETCH_TASKS[task_id] = {
+        "status": "running",
+        "progress": "Running...",
+        "logs": []
+    }
+
+    # Cancel the running task
+    cancel_resp = client.post(f"/api/v1/fetch/cancel/{task_id}")
+    assert cancel_resp.status_code == 200
+    assert cancel_resp.json()["status"] == "cancelled"
+    
+    # Assert task.cancel() was called
+    mock_task.cancel.assert_called_once()
+    
+    # Assert status in FETCH_TASKS was updated
+    assert FETCH_TASKS[task_id]["status"] == "failed"
+    assert "Cancelled" in FETCH_TASKS[task_id]["progress"]
+
+    # Clean up
+    if task_id in RUNNING_TASKS:
+        del RUNNING_TASKS[task_id]
+    if task_id in FETCH_TASKS:
+        del FETCH_TASKS[task_id]
 
 
 
