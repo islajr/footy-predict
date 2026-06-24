@@ -627,8 +627,7 @@ def serve(host: str, port: int) -> None:
     """Start the FastAPI local web application server."""
     console.print(f"[green]🚀 Starting Footy Predict Server on http://{host}:{port}...[/green]")
     import uvicorn
-    # Use string path for hot reloading to function correctly
-    uvicorn.run("src.api.app:app", host=host, port=port, reload=True)
+    uvicorn.run("src.api.app:app", host=host, port=port, reload=False)
 
 
 # ═══════════════════════════════════════════════════════════════
