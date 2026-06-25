@@ -693,6 +693,129 @@ a:focus-visible {
     margin-bottom: var(--space-2);
 }
 
+/* Match Card Component */
+.match-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+}
+
+.match-teams {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
+    font-family: var(--font-display);
+}
+
+.match-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-4);
+    border-bottom: 1px solid var(--border-primary);
+    padding-bottom: var(--space-3);
+}
+
+.match-recommendation {
+    background-color: var(--bg-surface-hover);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-2);
+}
+
+/* Metric Pill Component */
+.metric-pill {
+    background-color: var(--bg-surface-hover);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-primary);
+    min-width: 140px;
+}
+
+.metric-pill-label {
+    font-size: var(--text-xs);
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--space-1);
+}
+
+.metric-pill-value {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    font-family: var(--font-display);
+}
+
+/* Alerts */
+.info-alert {
+    background-color: var(--color-amber-muted);
+    border: 1px solid var(--color-amber);
+    color: var(--color-amber);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    margin-bottom: var(--space-5);
+}
+
+.info-alert-title {
+    font-weight: 700;
+    margin-bottom: var(--space-2);
+}
+
+.info-alert ul {
+    margin: 0;
+    padding-left: var(--space-4);
+    font-size: var(--text-sm);
+}
+
+/* Recommendation Item Component */
+.recommendation-item {
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-4);
+    background-color: var(--bg-surface-hover);
+    transition: all var(--transition-fast);
+}
+
+.recommendation-item:hover {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.recommendation-item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-2);
+}
+
+.recommendation-item-title {
+    font-weight: 700;
+    font-size: var(--text-md);
+}
+
+.recommendation-item-details {
+    font-size: var(--text-sm);
+    margin-bottom: var(--space-3);
+    color: var(--text-primary);
+}
+
+.recommendation-item-rationale {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-2);
+}
+
+.recommendation-item-risks {
+    font-size: var(--text-xs);
+    color: var(--color-red);
+}
+
 /* ─── Grid layouts ────────────────────────────────────────────── */
 
 .grid-2 {
@@ -787,21 +910,59 @@ a:focus-visible {
     align-items: center;
     gap: var(--space-3);
     width: 100%;
+    margin-bottom: var(--space-3);
+}
+
+.factor-bar-container:last-child {
+    margin-bottom: 0;
+}
+
+.factor-name {
+    width: 160px;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-secondary);
 }
 
 .factor-track {
     flex-grow: 1;
-    height: 6px;
-    background-color: var(--border-primary);
+    height: 8px;
+    background-color: var(--bg-surface-hover);
+    border: 1px solid var(--border-primary);
     border-radius: var(--radius-full);
-    overflow: hidden;
+    display: flex;
+    align-items: center;
     position: relative;
 }
 
 .factor-bar {
     height: 100%;
     border-radius: var(--radius-full);
-    transition: width var(--transition-slow);
+    transition: all var(--transition-slow);
+}
+
+.factor-bar-home {
+    background-color: var(--color-green);
+    margin-left: 50%;
+}
+
+.factor-bar-away {
+    background-color: var(--color-red);
+    margin-left: auto;
+    margin-right: 50%;
+}
+
+.factor-val {
+    width: 36px;
+    text-align: right;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
 }
 
 /* ─── Toast System ───────────────────────────────────────────── */
