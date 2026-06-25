@@ -91,7 +91,7 @@
         <!-- Main Workspace -->
         <div class="main-wrapper">
             <!-- Top App Header -->
-            <header class="app-header">
+            <header class="app-header" style="display:flex;align-items:center;justify-content:space-between;">
                 <div class="header-title">
                     {% block header_title %}Overview{% endblock %}
                 </div>
@@ -109,18 +109,18 @@
                 </div>
             </header>
 
-            <!-- Data Freshness Banner -->
-            {% if freshness %}
-            <div class="freshness-banner {% if freshness.hours > 48 %}freshness-red{% elif freshness.hours > 24 %}freshness-amber{% else %}freshness-green{% endif %}">
-                <span>Database last refreshed {{ freshness.label }}.</span>
-                {% if freshness.hours > 24 %}
-                <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600;">Refresh now</a>
-                {% endif %}
-            </div>
-            {% endif %}
-
             <!-- Page Body Content -->
             <main class="content-body">
+                <!-- Data Freshness Banner -->
+                {% if freshness %}
+                <div class="freshness-banner {% if freshness.hours > 48 %}freshness-red{% elif freshness.hours > 24 %}freshness-amber{% else %}freshness-green{% endif %}" style="margin-bottom: var(--space-6);">
+                    <span>Database last refreshed {{ freshness.label }}.</span>
+                    {% if freshness.hours > 24 %}
+                    <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600;">Refresh now</a>
+                    {% endif %}
+                </div>
+                {% endif %}
+
                 {% block content %}{% endblock %}
             </main>
         </div>

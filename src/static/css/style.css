@@ -228,7 +228,14 @@ a:focus-visible {
     flex-direction: column;
     padding: var(--space-5) var(--space-3);
     z-index: 100;
+    overflow-y: auto;
+    overflow-x: hidden;
     transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.sidebar nav {
+    flex-grow: 1;
+    overflow: hidden;
 }
 
 .logo-container {
@@ -304,9 +311,17 @@ a:focus-visible {
 }
 
 .nav-icon {
-    font-size: 16px;
+    width: 16px;
+    height: 16px;
     display: flex;
     align-items: center;
+    flex-shrink: 0;
+}
+
+.nav-icon svg {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
 }
 
 .sidebar-footer {
@@ -319,27 +334,46 @@ a:focus-visible {
 }
 
 /* Main Content Wrapper */
-.main-content {
+.main-wrapper {
     margin-left: var(--sidebar-width);
     flex-grow: 1;
-    padding: var(--space-8);
-    max-width: 1200px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
     width: calc(100% - var(--sidebar-width));
+    min-width: 0; /* Prevent flex blowout */
+    overflow-x: hidden;
 }
 
-/* App Header (Inside Page Content) */
+/* App Header — sticky top bar */
 .app-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--space-8);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    background-color: var(--bg-vibrancy);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border-primary);
+    padding: 0 var(--space-8);
+    height: var(--header-height);
+    flex-shrink: 0;
+}
+
+/* Page content area below the header */
+.content-body {
+    padding: var(--space-8);
+    flex-grow: 1;
+    min-width: 0;
+    max-width: 1200px;
+    width: 100%;
 }
 
 .header-title {
-    font-size: var(--text-3xl);
+    font-size: var(--text-xl);
     font-family: var(--font-display);
     font-weight: 700;
-    letter-spacing: -0.5px;
+    letter-spacing: -0.3px;
+    margin-bottom: 0;
 }
 
 .header-actions {
@@ -873,6 +907,24 @@ a:focus-visible {
 .freshness-dot.stale { background-color: var(--color-amber); }
 .freshness-dot.critical { background-color: var(--color-red); }
 
+.freshness-green {
+    background-color: var(--color-green-muted);
+    border-color: var(--color-green);
+    color: var(--color-green);
+}
+
+.freshness-amber {
+    background-color: var(--color-amber-muted);
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+}
+
+.freshness-red {
+    background-color: var(--color-red-muted);
+    border-color: var(--color-red);
+    color: var(--color-red);
+}
+
 /* Quota badge */
 .quota-badge {
     display: flex;
@@ -889,6 +941,10 @@ a:focus-visible {
     font-weight: 600;
     color: var(--text-primary);
 }
+
+.quota-ok { border-color: var(--color-green); color: var(--color-green); background-color: var(--color-green-muted); }
+.quota-warning { border-color: var(--color-amber); color: var(--color-amber); background-color: var(--color-amber-muted); }
+.quota-danger { border-color: var(--color-red); color: var(--color-red); background-color: var(--color-red-muted); }
 
 /* Market selection list inside preferences */
 .market-list {
@@ -1152,10 +1208,17 @@ a:focus-visible {
         display: none;
     }
 
-    .main-content {
+    .main-wrapper {
         margin-left: 60px;
         width: calc(100% - 60px);
+    }
+
+    .content-body {
         padding: var(--space-5);
+    }
+
+    .app-header {
+        padding: 0 var(--space-5);
     }
     
     .sidebar-footer .quota-badge,
