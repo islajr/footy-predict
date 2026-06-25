@@ -4,46 +4,46 @@
 {% block header_title %}Settings{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 32px;">
+<div class="section-header">
     <h1>App Preferences & Settings</h1>
     <p class="subtitle">Manage API connections, select active leagues, and toggle betting markets filters.</p>
 </div>
 
-<div class="dashboard-grid">
+<div class="grid-2">
     <!-- Left Column: API Keys & General Config Forms -->
     <div>
         <!-- API Credentials Card -->
         <div class="card">
-            <h2 style="font-size: 16px; margin-bottom: 16px;">API Access Keys</h2>
+            <h2 class="text-bold" style="font-size: var(--text-lg); margin-bottom: var(--space-4);">API Access Keys</h2>
             
-            <div class="form-group">
-                <label for="api_football_key">API-Football Key</label>
-                <div class="test-btn-container" style="display: flex; gap: 8px;">
+            <div class="form-group" style="margin-bottom: var(--space-4);">
+                <label for="api_football_key" class="text-sm text-bold">API-Football Key</label>
+                <div class="test-btn-container" style="display: flex; gap: var(--space-2);">
                     <input type="password" id="api_football_key" class="form-input" placeholder="API-Football Key" value="{{ settings.api_football_key }}">
                     <button type="button" onclick="testKey('api_football')" class="btn btn-secondary">Test</button>
                 </div>
-                <div id="status-api_football" class="test-status"></div>
+                <div id="status-api_football" class="test-status" style="margin-top: var(--space-1);"></div>
             </div>
 
-            <div class="form-group">
-                <label for="football_data_org_key">Football-Data.org Token</label>
-                <div class="test-btn-container" style="display: flex; gap: 8px;">
+            <div class="form-group" style="margin-bottom: var(--space-4);">
+                <label for="football_data_org_key" class="text-sm text-bold">Football-Data.org Token</label>
+                <div class="test-btn-container" style="display: flex; gap: var(--space-2);">
                     <input type="password" id="football_data_org_key" class="form-input" placeholder="Football-Data.org Token" value="{{ settings.football_data_org_key }}">
                     <button type="button" onclick="testKey('football_data_org')" class="btn btn-secondary">Test</button>
                 </div>
-                <div id="status-football_data_org" class="test-status"></div>
+                <div id="status-football_data_org" class="test-status" style="margin-top: var(--space-1);"></div>
             </div>
 
-            <div class="form-group">
-                <label for="fetch_strategy">Data Refresh Strategy</label>
+            <div class="form-group" style="margin-bottom: var(--space-4);">
+                <label for="fetch_strategy" class="text-sm text-bold">Data Refresh Strategy</label>
                 <select id="fetch_strategy" class="form-input">
                     <option value="full" {% if settings.fetch_strategy == 'full' %}selected{% endif %}>Full Refresh (all leagues)</option>
                     <option value="smart" {% if settings.fetch_strategy == 'smart' %}selected{% endif %}>Smart Refresh (quota conservation)</option>
                 </select>
             </div>
 
-            <div class="form-group" style="margin-bottom: 0; margin-top: 24px;">
-                <button type="button" onclick="saveGeneralSettings()" class="btn btn-primary" style="width: 100%;">
+            <div class="form-group" style="margin-bottom: 0; margin-top: var(--space-5);">
+                <button type="button" onclick="saveGeneralSettings()" class="btn btn-primary btn-full">
                     Save General Configuration
                 </button>
             </div>
@@ -51,26 +51,26 @@
 
         <!-- Leagues Preferences Card -->
         <div class="card">
-            <h2 style="font-size: 16px; margin-bottom: 12px;">Active Leagues</h2>
-            <p class="subtitle" style="margin-bottom: 16px;">Configure which leagues are active for matchweek analysis fetching.</p>
+            <h2 class="text-bold" style="font-size: var(--text-lg); margin-bottom: var(--space-2);">Active Leagues</h2>
+            <p class="subtitle" style="margin-bottom: var(--space-4);">Configure which leagues are active for matchweek analysis fetching.</p>
             
             <div class="market-list" style="max-height: 350px;">
                 {% for lg in leagues %}
-                <div class="flex-between" style="border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 10px;">
+                <div class="flex-between" style="border-bottom: 1px solid var(--border-primary); padding-bottom: var(--space-2); margin-bottom: var(--space-2);">
                     <label class="checkbox-label" style="font-weight: 600;">
                         <input type="checkbox" name="leagues" value="{{ lg.slug }}" {% if lg.enabled %}checked{% endif %}>
                         <span>{{ lg.name }} ({{ lg.country }})</span>
                     </label>
-                    <div style="display: flex; align-items: center; gap: 8px;">
-                        <span style="font-size: 11px; color: var(--text-secondary);">Sort Order:</span>
-                        <input type="number" name="order_{{ lg.slug }}" min="0" max="99" value="{{ lg.display_order }}" class="form-input" style="width: 50px; padding: 4px; text-align: center;">
+                    <div class="flex-align-center" style="gap: var(--space-2);">
+                        <span class="text-xs text-muted">Sort Order:</span>
+                        <input type="number" name="order_{{ lg.slug }}" min="0" max="99" value="{{ lg.display_order }}" class="form-input" style="width: 50px; padding: var(--space-1); text-align: center; height: auto; min-height: unset;">
                     </div>
                 </div>
                 {% endfor %}
             </div>
 
-            <div class="form-group" style="margin-bottom: 0; margin-top: 24px;">
-                <button type="button" onclick="saveLeaguesPreferences()" class="btn btn-primary" style="width: 100%;">
+            <div class="form-group" style="margin-bottom: 0; margin-top: var(--space-5);">
+                <button type="button" onclick="saveLeaguesPreferences()" class="btn btn-primary btn-full">
                     Save Active Leagues
                 </button>
             </div>
@@ -80,36 +80,36 @@
     <!-- Right Column: Markets & Floors Preferences -->
     <div>
         <div class="card">
-            <h2 style="font-size: 16px; margin-bottom: 12px;">Active Betting Markets</h2>
-            <p class="subtitle" style="margin-bottom: 16px;">Toggle which markets appear in the lists, and adjust the target probability floor thresholds.</p>
+            <h2 class="text-bold" style="font-size: var(--text-lg); margin-bottom: var(--space-2);">Active Betting Markets</h2>
+            <p class="subtitle" style="margin-bottom: var(--space-4);">Toggle which markets appear in the lists, and adjust the target probability floor thresholds.</p>
             
             <div class="market-list" style="max-height: 600px;">
                 {% for mk in markets %}
-                <div style="border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
-                    <div class="flex-between" style="margin-bottom: 8px;">
+                <div style="border-bottom: 1px solid var(--border-primary); padding-bottom: var(--space-3); margin-bottom: var(--space-3);">
+                    <div class="flex-between" style="margin-bottom: var(--space-2);">
                         <label class="checkbox-label" style="font-weight: 600;">
                             <input type="checkbox" name="markets" value="{{ mk.market_code }}" {% if mk.enabled %}checked{% endif %}>
                             <span>{{ mk.display_name }}</span>
                         </label>
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            <span style="font-size: 11px; color: var(--text-secondary);">Order:</span>
-                            <input type="number" name="m_order_{{ mk.market_code }}" min="0" max="99" value="{{ mk.display_order }}" class="form-input" style="width: 45px; padding: 2px; text-align: center;">
+                        <div class="flex-align-center" style="gap: var(--space-2);">
+                            <span class="text-xs text-muted">Order:</span>
+                            <input type="number" name="m_order_{{ mk.market_code }}" min="0" max="99" value="{{ mk.display_order }}" class="form-input" style="width: 45px; padding: var(--space-1); text-align: center; height: auto; min-height: unset;">
                         </div>
                     </div>
                     
-                    <div class="flex-between" style="padding-left: 24px;">
-                        <span style="font-size: 12px; color: var(--text-secondary);">Min Confidence Floor:</span>
+                    <div class="flex-between" style="padding-left: var(--space-6);">
+                        <span class="text-xs text-muted">Min Confidence Floor:</span>
                         <div class="slider-group" style="width: 180px;">
                             <input type="range" name="min_prob_{{ mk.market_code }}" min="0.4" max="0.9" step="0.05" value="{{ mk.min_probability }}">
-                            <span class="slider-value" id="val_{{ mk.market_code }}">{{ (mk.min_probability * 100)|int }}%</span>
+                            <span class="slider-value text-xs text-bold" id="val_{{ mk.market_code }}">{{ (mk.min_probability * 100)|int }}%</span>
                         </div>
                     </div>
                 </div>
                 {% endfor %}
             </div>
 
-            <div class="form-group" style="margin-bottom: 0; margin-top: 24px;">
-                <button type="button" onclick="saveMarketsPreferences()" class="btn btn-primary" style="width: 100%;">
+            <div class="form-group" style="margin-bottom: 0; margin-top: var(--space-5);">
+                <button type="button" onclick="saveMarketsPreferences()" class="btn btn-primary btn-full">
                     Save Active Markets
                 </button>
             </div>
