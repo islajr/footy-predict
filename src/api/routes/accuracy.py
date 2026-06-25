@@ -29,8 +29,11 @@ def get_calibration_readiness(db: Database = Depends(get_db)):
     return cal.get_calibration_readiness()
 
 
+from fastapi import Request
+
 @router.post("/calibrate")
 def run_calibration(
+    request: Request,
     reset: bool = Query(False, description="Reset weights to default values"),
     db: Database = Depends(get_db),
 ):
@@ -38,6 +41,8 @@ def run_calibration(
     cal = Calibrator(db)
     if reset:
         weights = cal.reset_weights()
+        if hasattr(request.app.state, "cached_weights"):
+            request.app.state.cached_weights = weights
         return {"message": "Weights successfully reset to default settings.", "weights": weights}
 
     readiness = cal.get_calibration_readiness()
@@ -52,6 +57,8 @@ def run_calibration(
 
     try:
         report = cal.calibrate()
+        if "new_weights" in report and hasattr(request.app.state, "cached_weights"):
+            request.app.state.cached_weights = report["new_weights"]
         return report
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

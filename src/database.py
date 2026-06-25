@@ -1278,6 +1278,12 @@ class Database:
             ).fetchone()
             return row["value"] if row else None
 
+    def get_all_settings(self) -> dict[str, str]:
+        """Retrieve all settings from user_settings as a dictionary."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT key, value FROM user_settings").fetchall()
+            return {row["key"]: row["value"] for row in rows}
+
     def set_setting(self, key: str, value: str) -> None:
         """Insert or update a key-value pair in user_settings."""
         with self._connect() as conn:

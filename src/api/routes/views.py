@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any
 from fastapi import APIRouter, Depends, Request, Query
@@ -49,14 +50,24 @@ def get_freshness_data(db: Database) -> dict[str, Any] | None:
             return {"label": "Unknown", "hours": 0}
 
 
+def mask_key(key: str | None) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "••••••••"
+    return f"{key[:4]}••••••••{key[-4:]}"
+
+
 def get_view_context(request: Request, db: Database, active_page: str) -> dict[str, Any]:
     """Retrieve shared layout parameters (quota, theme, freshness labels)."""
-    # Fetch settings
-    api_football_key = db.get_setting("api_football_key") or ""
-    fdo_key = db.get_setting("football_data_org_key") or ""
-    theme = db.get_setting("theme") or "dark"
-    onboarding_complete = (db.get_setting("onboarding_complete") == "1")
-    fetch_strategy = db.get_setting("fetch_strategy") or "full"
+    # Fetch settings in a single query
+    settings_map = db.get_all_settings()
+
+    api_football_key = mask_key(settings_map.get("api_football_key"))
+    fdo_key = mask_key(settings_map.get("football_data_org_key"))
+    theme = settings_map.get("theme") or "dark"
+    onboarding_complete = (settings_map.get("onboarding_complete") == "1")
+    fetch_strategy = settings_map.get("fetch_strategy") or "full"
 
     settings_dict = {
         "api_football_key": api_football_key,
@@ -210,7 +221,7 @@ def show_dashboard(request: Request, db: Database = Depends(get_db)):
 
 
 @router.get("/analysis", response_class=HTMLResponse)
-def show_analysis(
+async def show_analysis(
     request: Request,
     league: str | None = Query(None, description="League slug filter"),
     db: Database = Depends(get_db),
@@ -231,7 +242,8 @@ def show_analysis(
     from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     to_date = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    analyses = engine.analyze_matchweek(
+    analyses = await asyncio.to_thread(
+        engine.analyze_matchweek,
         league_slug=league,
         from_date=from_date,
         to_date=to_date,
@@ -279,7 +291,7 @@ def show_analysis(
 
 
 @router.get("/analysis/match/{match_id}", response_class=HTMLResponse)
-def show_match_detail(
+async def show_match_detail(
     request: Request,
     match_id: int,
     db: Database = Depends(get_db),
@@ -293,7 +305,7 @@ def show_match_detail(
     context = get_view_context(request, db, "analysis")
 
     try:
-        a = engine.analyze_match(match_id)
+        a = await asyncio.to_thread(engine.analyze_match, match_id)
     except ValueError as e:
         # Redirect to analysis list on invalid ID
         return RedirectResponse(url="/analysis")
@@ -474,7 +486,7 @@ def show_settings(request: Request, db: Database = Depends(get_db)):
 
 
 @router.get("/parlay", response_class=HTMLResponse)
-def show_parlay(
+async def show_parlay(
     request: Request,
     size: int = Query(50, description="Target parlay size"),
     min_confidence: str = Query("MEDIUM", description="Minimum confidence"),
@@ -491,7 +503,11 @@ def show_parlay(
     from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     to_date = (datetime.now(timezone.utc) + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    analyses = engine.analyze_matchweek(from_date=from_date, to_date=to_date)
+    analyses = await asyncio.to_thread(
+        engine.analyze_matchweek,
+        from_date=from_date,
+        to_date=to_date,
+    )
     
     # Filter analyses by active/enabled leagues
     active_leagues_prefs = db.get_league_preferences()
@@ -499,7 +515,12 @@ def show_parlay(
     league_slug_map = {cfg.name: slug for slug, cfg in LEAGUES.items()}
     analyses = [a for a in analyses if league_slug_map.get(a.league) in enabled_slugs]
 
-    suggestions = engine.suggest_parlay(analyses, size=size, min_confidence=min_confidence.upper())
+    suggestions = await asyncio.to_thread(
+        engine.suggest_parlay,
+        analyses,
+        size=size,
+        min_confidence=min_confidence.upper(),
+    )
 
     # Format suggested picks
     suggested_picks = []

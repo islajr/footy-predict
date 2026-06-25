@@ -97,7 +97,13 @@ def test_settings_retrieval_and_update(client):
     updated_data = update_resp.json()
     assert updated_data["theme"] == "light"
     assert updated_data["onboarding_complete"] is True
-    assert updated_data["api_football_key"] == "test-football-key"
+    assert updated_data["api_football_key"] == "test••••••••-key"
+    assert updated_data["football_data_org_key"] == "test••••••••-key"
+
+    # Verify that the database stores the keys in plaintext
+    db = client.app.state.db
+    assert db.get_setting("api_football_key") == "test-football-key"
+    assert db.get_setting("football_data_org_key") == "test-fdo-key"
 
 def test_leagues_preferences(client):
     # Retrieve leagues

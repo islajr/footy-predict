@@ -18,12 +18,26 @@ logger = logging.getLogger("footy.api.settings")
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
 
+def mask_key(key: str | None) -> str:
+    if not key:
+        return ""
+    if len(key) <= 8:
+        return "••••••••"
+    return f"{key[:4]}••••••••{key[-4:]}"
+
+
+def is_masked(key: str | None) -> bool:
+    if not key:
+        return False
+    return "•" in key or "*" in key
+
+
 @router.get("", response_model=SettingsSchema)
 def get_settings(db: Database = Depends(get_db)):
     """Retrieve all current user preferences and settings."""
     return SettingsSchema(
-        api_football_key=db.get_setting("api_football_key") or "",
-        football_data_org_key=db.get_setting("football_data_org_key") or "",
+        api_football_key=mask_key(db.get_setting("api_football_key")),
+        football_data_org_key=mask_key(db.get_setting("football_data_org_key")),
         theme=db.get_setting("theme") or "dark",
         onboarding_complete=(db.get_setting("onboarding_complete") == "1"),
         fetch_strategy=db.get_setting("fetch_strategy") or "full",
@@ -33,8 +47,10 @@ def get_settings(db: Database = Depends(get_db)):
 @router.post("", response_model=SettingsSchema)
 def update_settings(settings: SettingsSchema, db: Database = Depends(get_db)):
     """Update settings key-value pairs."""
-    db.set_setting("api_football_key", settings.api_football_key)
-    db.set_setting("football_data_org_key", settings.football_data_org_key)
+    if not is_masked(settings.api_football_key):
+        db.set_setting("api_football_key", settings.api_football_key)
+    if not is_masked(settings.football_data_org_key):
+        db.set_setting("football_data_org_key", settings.football_data_org_key)
     db.set_setting("theme", settings.theme)
     db.set_setting("onboarding_complete", "1" if settings.onboarding_complete else "0")
     db.set_setting("fetch_strategy", settings.fetch_strategy)
@@ -42,10 +58,14 @@ def update_settings(settings: SettingsSchema, db: Database = Depends(get_db)):
 
 
 @router.post("/test-key", response_model=KeyTestResponseSchema)
-async def test_api_key(req: KeyTestRequestSchema):
+async def test_api_key(req: KeyTestRequestSchema, db: Database = Depends(get_db)):
     """Test validity of a specific API key via remote ping."""
     provider = req.provider.lower()
     key = req.key.strip()
+
+    if is_masked(key):
+        key = db.get_setting(f"{provider}_key") or ""
+        key = key.strip()
 
     if not key:
         return KeyTestResponseSchema(valid=False, quota_remaining=0, error="API key is blank.")

@@ -15,9 +15,11 @@ def get_db(request: Request) -> Database:
 def get_engine(request: Request) -> AnalysisEngine:
     """Dependency provider for the AnalysisEngine instance."""
     db = get_db(request)
-    # Calibrate weights on request using saved json weights
-    weights = Calibrator.load_weights()
-    return AnalysisEngine(db, weights=weights)
+    # Cache weights in app state to avoid reading JSON from disk on every request
+    app_state = request.app.state
+    if not hasattr(app_state, "cached_weights") or app_state.cached_weights is None:
+        app_state.cached_weights = Calibrator.load_weights()
+    return AnalysisEngine(db, weights=app_state.cached_weights)
 
 
 def get_formatter() -> ReportFormatter:

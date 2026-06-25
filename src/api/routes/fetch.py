@@ -215,7 +215,7 @@ async def run_background_fetch(task_id: str, league_slug: str | None, db: Databa
             del RUNNING_TASKS[task_id]
 
 
-@router.post("")
+@router.post("", status_code=202)
 async def trigger_fetch(
     league: str | None = Query(None, description="League slug filter"),
     db: Database = Depends(get_db),
@@ -229,11 +229,27 @@ async def trigger_fetch(
         "total": 0,
         "logs": [],
         "result": None,
+        "created_at": datetime.now(timezone.utc),
     }
 
     # Spawn task in the background
     task = asyncio.create_task(run_background_fetch(task_id, league, db))
     RUNNING_TASKS[task_id] = task
+
+    # Evict oldest tasks if FETCH_TASKS grows too large (prevent memory leak)
+    if len(FETCH_TASKS) > 50:
+        completed_tasks = [
+            (tid, tinfo)
+            for tid, tinfo in FETCH_TASKS.items()
+            if tid not in RUNNING_TASKS and tinfo.get("status") in ("success", "failed")
+        ]
+        completed_tasks.sort(key=lambda x: x[1].get("created_at", datetime.min.replace(tzinfo=timezone.utc)))
+        # Evict down to 40 tasks
+        to_remove = len(FETCH_TASKS) - 40
+        for i in range(min(to_remove, len(completed_tasks))):
+            tid = completed_tasks[i][0]
+            if tid in FETCH_TASKS:
+                del FETCH_TASKS[tid]
 
     return {"task_id": task_id, "status": "running"}
 
@@ -270,15 +286,26 @@ async def stream_fetch_logs(task_id: str):
 
         task = FETCH_TASKS[task_id]
         last_idx = 0
+        inactivity_counter = 0
+        max_inactivity_steps = 3600  # 30 minutes of inactivity max
+
         while True:
             logs = task["logs"]
             if last_idx < len(logs):
                 for i in range(last_idx, len(logs)):
                     yield f"data: {json.dumps({'status': task['status'], 'log': logs[i], 'progress': task['progress']})}\n\n"
                 last_idx = len(logs)
+                inactivity_counter = 0
+            else:
+                inactivity_counter += 1
 
             if task["status"] in ("success", "failed"):
                 yield f"data: {json.dumps({'status': task['status'], 'progress': task['progress'], 'done': True})}\n\n"
+                break
+
+            # Safety timeout if task hangs in running state without output
+            if inactivity_counter >= max_inactivity_steps:
+                yield f"data: {json.dumps({'status': 'failed', 'log': 'Connection closed due to inactivity.', 'progress': 'Timeout', 'done': True})}\n\n"
                 break
 
             await asyncio.sleep(0.5)

@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+import asyncio
 from src.main import init_app
 from src.api.routes import analysis, picks, fetch, accuracy, settings, views, parlay
 
@@ -19,7 +20,7 @@ async def lifespan(app: FastAPI):
     """Lifecycle events: boots database and sets it on app state."""
     logger.info("Initializing Footy Predict database...")
     if not hasattr(app.state, "db") or app.state.db is None:
-        db = init_app()
+        db = await asyncio.to_thread(init_app)
         app.state.db = db
     yield
     logger.info("Footy Predict database shutting down.")
@@ -32,10 +33,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware
+# CORS middleware - secure local origins when allow_credentials is True
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
