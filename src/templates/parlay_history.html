@@ -4,7 +4,7 @@
 {% block header_title %}Parlay History{% endblock %}
 
 {% block content %}
-<div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+<div class="flex-between section-header">
     <div>
         <h1>Parlay History & Settle</h1>
         <p class="subtitle">Track saved slips, settle outcomes, and measure historical ROI.</p>
@@ -17,27 +17,27 @@
 </div>
 
 <!-- Parlay History Summary Stats -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;">
-    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
-        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Total Slips</div>
-        <div style="font-size: 28px; font-weight: 700; color: var(--text-primary);">{{ parlays|length }}</div>
+<div class="grid-4" style="margin-bottom: var(--space-5);">
+    <div class="card" style="text-align: center; padding: var(--space-4); margin-bottom: 0;">
+        <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Total Slips</div>
+        <div class="text-bold" style="font-size: var(--text-3xl); color: var(--text-primary);">{{ parlays|length }}</div>
     </div>
-    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
-        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Active / Submitted</div>
-        <div style="font-size: 28px; font-weight: 700; color: var(--accent-blue);">
+    <div class="card" style="text-align: center; padding: var(--space-4); margin-bottom: 0;">
+        <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Active / Submitted</div>
+        <div class="text-bold" style="font-size: var(--text-3xl); color: var(--accent);">
             {{ parlays|selectattr('status', 'equalto', 'submitted')|list|length }}
         </div>
     </div>
-    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
-        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Won / Lost</div>
-        <div style="font-size: 28px; font-weight: 700; color: var(--accent-emerald);">
+    <div class="card" style="text-align: center; padding: var(--space-4); margin-bottom: 0;">
+        <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Won / Lost</div>
+        <div class="text-bold" style="font-size: var(--text-3xl); color: var(--color-green);">
             {{ parlays|selectattr('status', 'equalto', 'won')|list|length }}
-            <span style="font-size: 16px; font-weight: 500; color: var(--text-secondary);">/</span>
-            <span style="color: var(--accent-coral);">{{ parlays|selectattr('status', 'equalto', 'lost')|list|length }}</span>
+            <span class="text-muted" style="font-size: var(--text-lg); font-weight: 500;">/</span>
+            <span style="color: var(--color-red);">{{ parlays|selectattr('status', 'equalto', 'lost')|list|length }}</span>
         </div>
     </div>
-    <div class="card" style="padding: 16px; text-align: center; margin-bottom: 0;">
-        <div style="font-size: 12px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Simulated Net ROI</div>
+    <div class="card" style="text-align: center; padding: var(--space-4); margin-bottom: 0;">
+        <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Simulated Net ROI</div>
         {% set ns = namespace(net_roi=0.0) %}
         {% for p in parlays %}
             {% if p.status == 'won' %}
@@ -46,14 +46,14 @@
                 {% set ns.net_roi = ns.net_roi - 1.0 %}
             {% endif %}
         {% endfor %}
-        <div style="font-size: 28px; font-weight: 700; color: {% if ns.net_roi > 0 %}var(--accent-emerald){% elif ns.net_roi < 0 %}var(--accent-coral){% else %}var(--text-primary){% endif %};">
+        <div class="text-bold" style="font-size: var(--text-3xl); color: {% if ns.net_roi > 0 %}var(--color-green){% elif ns.net_roi < 0 %}var(--color-red){% else %}var(--text-primary){% endif %};">
             {% if ns.net_roi > 0 %}+{% endif %}{{ "%.2f"|format(ns.net_roi) }} u
         </div>
     </div>
 </div>
 
 <!-- Parlays Table -->
-<div class="card" style="padding: 0; overflow: hidden;">
+<div class="card" style="padding: 0; overflow: hidden; margin-bottom: var(--space-5);">
     {% if parlays %}
     <table class="styled-table">
         <thead>
@@ -72,54 +72,54 @@
         <tbody>
             {% for p in parlays %}
             <tr style="cursor: pointer;" id="row-{{ p.id }}" onclick="togglePicksDetails({{ p.id }})">
-                <td style="color: var(--text-secondary); font-size: 13px;">{{ p.created_at }}</td>
+                <td class="text-sm text-muted">{{ p.created_at }}</td>
                 <td>
-                    <div style="font-weight: 600; font-size: 14px; color: var(--text-primary);">{{ p.name }}</div>
+                    <div class="text-bold text-sm" style="color: var(--text-primary);">{{ p.name }}</div>
                     {% if p.notes %}
-                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px; font-style: italic; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <div class="text-xs text-muted" style="margin-top: var(--space-1); font-style: italic; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                         {{ p.notes }}
                     </div>
                     {% endif %}
                 </td>
-                <td style="text-align: right; font-weight: 600;">{{ p.size }}</td>
-                <td style="text-align: right; color: var(--accent-blue); font-weight: 600;">@ {{ "%.2f"|format(p.combined_odds) }}</td>
-                <td style="text-align: right; font-weight: 600;">{{ "%.2f"|format(p.combined_probability * 100) }}%</td>
+                <td class="text-bold" style="text-align: right;">{{ p.size }}</td>
+                <td class="text-bold" style="text-align: right; color: var(--accent);">@ {{ "%.2f"|format(p.combined_odds) }}</td>
+                <td class="text-bold" style="text-align: right;">{{ "%.2f"|format(p.combined_probability * 100) }}%</td>
                 <td>
                     <span class="badge {% if p.status == 'won' %}badge-high{% elif p.status == 'lost' %}badge-low{% elif p.status == 'submitted' %}badge-medium{% else %}badge-draft{% endif %}">
                         {{ p.status }}
                     </span>
                 </td>
-                <td style="text-align: right; font-weight: 600;">
+                <td class="text-bold" style="text-align: right;">
                     {% if p.correct_count is not none %}
                         {{ p.correct_count }} / {{ p.size }}
                     {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                     {% endif %}
                 </td>
-                <td style="text-align: right; font-weight: 700; color: {% if p.status == 'won' %}var(--accent-emerald){% elif p.status == 'lost' %}var(--accent-coral){% else %}var(--text-secondary){% endif %};">
+                <td class="text-bold" style="text-align: right; color: {% if p.status == 'won' %}var(--color-green){% elif p.status == 'lost' %}var(--color-red){% else %}var(--text-secondary){% endif %};">
                     {% if p.status == 'won' %}
                         +{{ "%.2f"|format(p.combined_odds - 1.0) }} u
                     {% elif p.status == 'lost' %}
                         -1.00 u
                     {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                     {% endif %}
                 </td>
                 <td style="text-align: right;" onclick="event.stopPropagation()">
-                    <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+                    <div style="display: flex; gap: var(--space-2); justify-content: flex-end; align-items: center;">
                         {% if p.status == 'draft' %}
-                            <button onclick="submitParlay({{ p.id }})" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-blue); border-color: var(--accent-blue-alpha);">
+                            <button onclick="submitParlay({{ p.id }})" class="btn btn-secondary text-xs" style="padding: var(--space-1) var(--space-2); color: var(--accent); border-color: var(--accent-muted);">
                                 Submit
                             </button>
-                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text" style="color: var(--accent-coral); font-size: 11px; padding: 4px 8px;">
+                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text text-xs" style="color: var(--color-red); padding: var(--space-1) var(--space-2);">
                                 Delete
                             </button>
                         {% elif p.status == 'submitted' %}
-                            <button onclick="showSettleForm({{ p.id }}, {{ p.size }})" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-emerald); border-color: var(--accent-emerald-alpha);">
-                                Settle Outcome
+                            <button onclick="showSettleForm({{ p.id }}, {{ p.size }})" class="btn btn-secondary text-xs" style="padding: var(--space-1) var(--space-2); color: var(--color-green); border-color: var(--color-green-muted);">
+                                Settle
                             </button>
                         {% else %}
-                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text" style="color: var(--accent-coral); font-size: 11px; padding: 4px 8px;">
+                            <button onclick="deleteParlay({{ p.id }})" class="btn btn-text text-xs" style="color: var(--color-red); padding: var(--space-1) var(--space-2);">
                                 Delete
                             </button>
                         {% endif %}
@@ -128,21 +128,21 @@
             </tr>
             <!-- Expanded picks details row -->
             <tr id="details-{{ p.id }}" style="display: none; background-color: var(--bg-surface-hover);" onclick="event.stopPropagation()">
-                <td colspan="9" style="padding: 16px 24px; border-bottom: 1px solid var(--border-color);">
-                    <div style="margin-bottom: 12px; font-weight: 600; font-size: 13px; text-transform: uppercase; color: var(--text-secondary);">Picks Details for: {{ p.name }}</div>
+                <td colspan="9" style="padding: var(--space-4) var(--space-5); border-bottom: 1px solid var(--border-primary);">
+                    <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-3);">Picks Details for: {{ p.name }}</div>
                     
-                    <div style="display: flex; flex-direction: column; gap: 8px; max-width: 800px;">
+                    <div style="display: flex; flex-direction: column; gap: var(--space-2); max-width: 800px;">
                         {% for item in p.picks %}
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background-color: var(--bg-surface); border-radius: var(--border-radius-md); border: 1px solid var(--border-color);">
-                            <div>
-                                <span class="badge" style="background-color: var(--bg-elevated); color: var(--text-secondary); font-size: 8px; padding: 1px 4px; margin-right: 6px;">{{ item.league }}</span>
-                                <span style="font-weight: 600; font-size: 13px;">{{ item.home_team }} vs {{ item.away_team }}</span>
+                        <div class="flex-between" style="padding: var(--space-2) var(--space-3); background-color: var(--bg-surface); border-radius: var(--radius-md); border: 1px solid var(--border-primary);">
+                            <div class="flex-align-center">
+                                <span class="badge" style="margin-right: var(--space-2);">{{ item.league }}</span>
+                                <span class="text-sm text-bold">{{ item.home_team }} vs {{ item.away_team }}</span>
                             </div>
-                            <div style="display: flex; gap: 16px; font-size: 13px; align-items: center;">
-                                <span style="font-weight: 600; color: var(--accent-blue); font-size: 12px;">{{ item.market_name }}: {{ item.pick }}</span>
-                                <span style="color: var(--text-secondary);">{{ (item.probability * 100)|int }}%</span>
-                                <span style="color: var(--accent-blue); font-weight: 600;">@ {{ "%.2f"|format(item.implied_odds) }}</span>
-                                <span class="badge {% if item.confidence == 'HIGH' %}badge-high{% elif item.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}" style="font-size: 8px; padding: 1px 4px;">{{ item.confidence }}</span>
+                            <div class="flex-align-center text-sm" style="gap: var(--space-4);">
+                                <span class="text-bold" style="color: var(--accent); font-size: var(--text-xs);">{{ item.market_name }}: {{ item.pick }}</span>
+                                <span class="text-muted">{{ (item.probability * 100)|int }}%</span>
+                                <span class="text-bold" style="color: var(--accent);">@ {{ "%.2f"|format(item.implied_odds) }}</span>
+                                <span class="badge {% if item.confidence == 'HIGH' %}badge-high{% elif item.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">{{ item.confidence }}</span>
                             </div>
                         </div>
                         {% endfor %}
@@ -153,42 +153,45 @@
         </tbody>
     </table>
     {% else %}
-    <div style="text-align: center; padding: 60px 0; color: var(--text-secondary);">
-        <p style="font-size: 16px; margin-bottom: 8px;">No saved parlay slips found.</p>
-        <p style="font-size: 13px;">Use the <a href="/parlay" style="text-decoration: underline;">Parlay Builder</a> to create one.</p>
+    <div style="text-align: center; padding: var(--space-8) 0; color: var(--text-secondary);">
+        <p style="font-size: var(--text-md); margin-bottom: var(--space-2);">No saved parlay slips found.</p>
+        <p style="font-size: var(--text-sm);">Use the <a href="/parlay" style="text-decoration: underline; color: var(--accent);">Parlay Builder</a> to create one.</p>
     </div>
     {% endif %}
 </div>
 
-<!-- Settle Slip Modal / Inline Popup -->
-<div id="settle-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); z-index: 1000; align-items: center; justify-content: center;">
-    <div class="card" style="width: 100%; max-width: 400px; padding: 24px; position: relative;">
-        <h3 style="margin-bottom: 16px;">Settle Parlay Outcome</h3>
-        
-        <input type="hidden" id="settle-parlay-id">
-        
-        <div class="form-group">
-            <label for="settle-correct-count">Correct Picks Count (Out of <span id="settle-max-picks">0</span>)</label>
-            <input type="number" id="settle-correct-count" class="form-input" min="0" value="0">
+<!-- Settle Slip Modal -->
+<div id="settle-modal" class="modal-backdrop">
+    <div class="modal-content" style="max-width: 440px;">
+        <div class="modal-header">
+            <h3 style="margin: 0;">Settle Parlay Outcome</h3>
+            <button onclick="closeSettleModal()" class="btn btn-text text-lg" style="padding: 0; line-height: 1;">×</button>
         </div>
+        <div class="modal-body">
+            <input type="hidden" id="settle-parlay-id">
+            
+            <div class="form-group" style="margin-bottom: var(--space-4);">
+                <label for="settle-correct-count" class="text-sm text-bold">Correct Picks Count (Out of <span id="settle-max-picks">0</span>)</label>
+                <input type="number" id="settle-correct-count" class="form-input" min="0" value="0">
+            </div>
 
-        <div class="form-group">
-            <label>Final Status</label>
-            <div style="display: flex; gap: 16px; margin-top: 8px;">
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="settle-status" value="won" checked style="width: 16px; height: 16px;">
-                    <span style="color: var(--accent-emerald); font-weight: 600;">Won</span>
-                </label>
-                <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                    <input type="radio" name="settle-status" value="lost" style="width: 16px; height: 16px;">
-                    <span style="color: var(--accent-coral); font-weight: 600;">Lost</span>
-                </label>
+            <div class="form-group">
+                <label class="text-sm text-bold">Final Status</label>
+                <div style="display: flex; gap: var(--space-4); margin-top: var(--space-2);">
+                    <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="radio" name="settle-status" value="won" checked style="width: 16px; height: 16px; accent-color: var(--color-green);">
+                        <span style="color: var(--color-green); font-weight: 600;">Won</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: var(--space-2); cursor: pointer;">
+                        <input type="radio" name="settle-status" value="lost" style="width: 16px; height: 16px; accent-color: var(--color-red);">
+                        <span style="color: var(--color-red); font-weight: 600;">Lost</span>
+                    </label>
+                </div>
             </div>
         </div>
-
-        <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
-            <button onclick="closeSettleModal()" class="btn btn-secondary" style="padding: 8px 16px;">Cancel</button>
-            <button onclick="submitSettle()" class="btn btn-primary" style="padding: 8px 16px;">Confirm Settle</button>
+        <div class="modal-footer">
+            <button onclick="closeSettleModal()" class="btn btn-secondary">Cancel</button>
+            <button onclick="submitSettle()" class="btn btn-primary">Confirm Settle</button>
         </div>
     </div>
 </div>
@@ -247,14 +250,15 @@
         countInput.max = maxPicks;
         countInput.value = maxPicks; // default to max
 
-        // Show modal
+        // Show modal via class list active
         const modal = document.getElementById('settle-modal');
-        modal.style.display = "flex";
+        modal.classList.add('active');
     }
 
+    // Hide modal via class list active removal
     function closeSettleModal() {
         const modal = document.getElementById('settle-modal');
-        modal.style.display = "none";
+        modal.classList.remove('active');
     }
 
     function submitSettle() {

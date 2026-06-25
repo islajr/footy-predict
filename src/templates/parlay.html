@@ -4,7 +4,7 @@
 {% block header_title %}Parlay Builder{% endblock %}
 
 {% block content %}
-<div class="header-container" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 32px;">
+<div class="flex-between section-header">
     <div>
         <h1>Interactive Parlay Builder</h1>
         <p class="subtitle">Draft your accumulator slip. The engine suggests options, you refine and decide.</p>
@@ -16,68 +16,68 @@
     </div>
 </div>
 
-<div class="parlay-cols" style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px;">
+<div class="parlay-grid">
     
     <!-- Left Column: Available Picks -->
     <div class="card" style="display: flex; flex-direction: column; height: fit-content; max-height: 80vh;">
-        <h2 class="card-title" style="margin-bottom: 16px;">
+        <h2 class="card-title flex-between" style="margin-bottom: var(--space-3);">
             <span>Available Recommendations</span>
-            <span class="badge badge-medium" style="font-size: 10px;" id="available-count">0 options</span>
+            <span class="badge badge-medium" id="available-count">0 options</span>
         </h2>
         
         <!-- Search and filters -->
-        <div style="margin-bottom: 16px; display: flex; gap: 8px;">
-            <input type="text" id="pick-search" class="form-input" placeholder="Search by team, league..." oninput="filterAvailablePicks()" style="padding: 8px 12px; font-size: 13px;">
+        <div style="margin-bottom: var(--space-3);">
+            <input type="text" id="pick-search" class="form-input" placeholder="Search by team, league..." oninput="filterAvailablePicks()">
         </div>
 
-        <div id="available-picks-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 12px; padding-right: 4px; max-height: 55vh;">
+        <div id="available-picks-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: var(--space-3); padding-right: var(--space-1); max-height: 55vh;">
             <!-- Rendered dynamically -->
         </div>
     </div>
 
     <!-- Right Column: Current Slip -->
-    <div class="card" style="display: flex; flex-direction: column; height: fit-content;">
-        <h2 class="card-title" style="margin-bottom: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 12px;">
+    <div class="card sticky-slip" style="display: flex; flex-direction: column;">
+        <h2 class="card-title flex-between" style="margin-bottom: var(--space-4); border-bottom: 1px solid var(--border-primary); padding-bottom: var(--space-3);">
             <span>🎟️ Parlay Slip</span>
-            <button onclick="clearSlip()" class="btn btn-text" style="font-size: 12px; color: var(--accent-coral);">Clear Slip</button>
+            <button onclick="clearSlip()" class="btn btn-text text-sm" style="color: var(--color-red); padding: 0;">Clear Slip</button>
         </h2>
 
         <!-- Running Stats Panel -->
-        <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 12px; background-color: var(--bg-surface-hover); border-radius: var(--border-radius-lg); padding: 16px; margin-bottom: 20px; border: 1px solid var(--border-color);">
+        <div style="display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: var(--space-3); background-color: var(--bg-surface-hover); border-radius: var(--radius-lg); padding: var(--space-4); margin-bottom: var(--space-4); border: 1px solid var(--border-primary);">
             <div style="text-align: center;">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Picks</div>
-                <div style="font-size: 24px; font-weight: 700; color: var(--text-primary);" id="stat-picks-count">0</div>
+                <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Picks</div>
+                <div class="text-bold" style="font-size: var(--text-2xl); color: var(--text-primary);" id="stat-picks-count">0</div>
             </div>
-            <div style="text-align: center; border-left: 1px solid var(--border-color); border-right: 1px solid var(--border-color);">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Combined Odds</div>
-                <div style="font-size: 24px; font-weight: 700; color: var(--accent-blue);" id="stat-combined-odds">1.00</div>
+            <div style="text-align: center; border-left: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary);">
+                <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Combined Odds</div>
+                <div class="text-bold" style="font-size: var(--text-2xl); color: var(--accent);" id="stat-combined-odds">1.00</div>
             </div>
             <div style="text-align: center;">
-                <div style="font-size: 11px; text-transform: uppercase; color: var(--text-secondary); font-weight: 600; margin-bottom: 4px;">Win Prob</div>
-                <div style="font-size: 24px; font-weight: 700; color: var(--accent-emerald);" id="stat-win-prob">100%</div>
+                <div class="text-xs text-muted text-bold" style="text-transform: uppercase; margin-bottom: var(--space-1);">Win Prob</div>
+                <div class="text-bold" style="font-size: var(--text-2xl); color: var(--color-green);" id="stat-win-prob">100%</div>
             </div>
         </div>
 
         <!-- Slip Meta Info Form -->
-        <div style="margin-bottom: 20px;">
-            <div class="form-group" style="margin-bottom: 12px;">
-                <label for="slip-name">Parlay Name</label>
-                <input type="text" id="slip-name" class="form-input" style="padding: 8px 12px;" placeholder="e.g. Weekend Accumulator">
+        <div style="margin-bottom: var(--space-4);">
+            <div class="form-group" style="margin-bottom: var(--space-3);">
+                <label for="slip-name" class="text-sm text-bold">Parlay Name</label>
+                <input type="text" id="slip-name" class="form-input" placeholder="e.g. Weekend Accumulator">
             </div>
-            <div class="form-group" style="margin-bottom: 12px;">
-                <label for="slip-notes">Notes / Strategy</label>
-                <textarea id="slip-notes" class="form-input" style="padding: 8px 12px; height: 60px; resize: none;" placeholder="Optional notes..."></textarea>
+            <div class="form-group" style="margin-bottom: var(--space-3);">
+                <label for="slip-notes" class="text-sm text-bold">Notes / Strategy</label>
+                <textarea id="slip-notes" class="form-input" style="height: 60px; resize: none;" placeholder="Optional notes..."></textarea>
             </div>
         </div>
 
         <!-- Scrollable Slip Items -->
-        <div id="slip-items-container" style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 24px; max-height: 45vh; overflow-y: auto; padding-right: 4px;">
+        <div id="slip-items-container" style="display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-4); max-height: 45vh; overflow-y: auto; padding-right: var(--space-1);">
             <!-- Rendered dynamically -->
         </div>
 
         <!-- Action Buttons -->
         <div>
-            <button onclick="saveSlip()" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 15px;">
+            <button onclick="saveSlip()" class="btn btn-primary btn-full" style="padding: var(--space-3); font-size: var(--text-md);">
                 💾 Save Parlay Slip
             </button>
         </div>
@@ -152,7 +152,7 @@
         document.getElementById('available-count').innerText = `${count} options`;
         
         if (filtered.length === 0) {
-            listEl.innerHTML = `<div style="text-align: center; padding: 20px; color: var(--text-secondary); font-size: 13px;">No matching recommendations found.</div>`;
+            listEl.innerHTML = `<div class="text-center text-sm text-muted" style="padding: var(--space-4);">No matching recommendations found.</div>`;
             return;
         }
 
@@ -163,42 +163,32 @@
 
             const card = document.createElement('div');
             card.className = "card-sub";
-            card.style.cssText = `
-                background-color: var(--bg-surface-hover);
-                border: 1px solid var(--border-color);
-                border-radius: var(--border-radius-lg);
-                padding: 12px 16px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                transition: var(--transition-smooth);
-            `;
 
             let actionBtn = "";
             if (isExactPickOnSlip) {
-                actionBtn = `<span style="font-size: 12px; color: var(--accent-emerald); font-weight: 600;">✓ In Slip</span>`;
+                actionBtn = `<span class="text-xs text-bold" style="color: var(--color-green);">✓ In Slip</span>`;
             } else if (isMatchOnSlip) {
-                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px; color: var(--accent-amber); border-color: var(--accent-amber-alpha);">Replace Market</button>`;
+                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary text-xs" style="padding: var(--space-1) var(--space-2); color: var(--color-amber); border-color: var(--color-amber-muted);">Replace</button>`;
             } else {
-                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary" style="font-size: 11px; padding: 4px 8px;">+ Slip</button>`;
+                actionBtn = `<button onclick="addPick(${p.match_id}, '${p.market_code}')" class="btn btn-secondary text-xs" style="padding: var(--space-1) var(--space-2);">+ Slip</button>`;
             }
 
             card.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div class="flex-between" style="align-items: flex-start;">
                     <div>
-                        <span class="badge" style="background-color: var(--bg-elevated); color: var(--text-secondary); font-size: 9px; padding: 2px 6px; margin-bottom: 4px;">${p.league}</span>
-                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${p.home_team} vs ${p.away_team}</div>
+                        <span class="badge" style="margin-bottom: var(--space-1);">${p.league}</span>
+                        <div class="text-sm text-bold">${p.home_team} vs ${p.away_team}</div>
                     </div>
                     <div>${actionBtn}</div>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-secondary);">
+                <div class="flex-between text-xs text-muted">
                     <div>
-                        <span style="font-weight: 600; color: var(--accent-blue);">${p.market_name}: ${p.pick}</span>
+                        <span class="text-bold" style="color: var(--accent);">${p.market_name}: ${p.pick}</span>
                     </div>
-                    <div style="display: flex; gap: 8px; align-items: center;">
-                        <span style="font-weight: 600; color: var(--text-primary);">${(p.probability * 100).toFixed(0)}%</span>
-                        <span style="color: var(--accent-blue); font-weight: 600;">@ ${p.implied_odds.toFixed(2)}</span>
-                        <span class="badge ${p.confidence === 'HIGH' ? 'badge-high' : p.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}" style="font-size: 8px; padding: 2px 6px;">${p.confidence}</span>
+                    <div class="flex-align-center">
+                        <span class="text-bold" style="color: var(--text-primary);">${(p.probability * 100).toFixed(0)}%</span>
+                        <span class="text-bold" style="color: var(--accent);">@ ${p.implied_odds.toFixed(2)}</span>
+                        <span class="badge ${p.confidence === 'HIGH' ? 'badge-high' : p.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}">${p.confidence}</span>
                     </div>
                 </div>
             `;
@@ -350,9 +340,9 @@
 
         if (currentSlip.length === 0) {
             container.innerHTML = `
-                <div style="text-align: center; padding: 40px; color: var(--text-secondary); border: 2px dashed var(--border-color); border-radius: var(--border-radius-lg);">
-                    <p style="font-size: 14px; font-weight: 500;">No items on your slip.</p>
-                    <p style="font-size: 12px; margin-top: 4px;">Choose recommendations from the left panel or high picks list to build.</p>
+                <div style="text-align: center; padding: var(--space-8); color: var(--text-secondary); border: 2px dashed var(--border-primary); border-radius: var(--radius-lg);">
+                    <p class="text-sm text-bold">No items on your slip.</p>
+                    <p class="text-xs text-muted" style="margin-top: var(--space-1);">Choose recommendations from the left panel or high picks list to build.</p>
                 </div>
             `;
             return;
@@ -363,16 +353,7 @@
             const alternatives = availablePicks.filter(alt => alt.match_id === item.match_id);
 
             const row = document.createElement('div');
-            row.style.cssText = `
-                background-color: var(--bg-surface-hover);
-                border: 1px solid ${item.is_swapped ? 'var(--accent-amber-alpha)' : 'var(--border-color)'};
-                border-radius: var(--border-radius-lg);
-                padding: 12px;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                position: relative;
-            `;
+            row.className = `parlay-slip-item ${item.is_swapped ? 'swapped' : ''}`;
 
             // Build options for select dropdown
             let optionsHTML = "";
@@ -384,26 +365,26 @@
             // Swap warning or manual label
             let warningBadge = "";
             if (item.is_swapped) {
-                warningBadge = `<span class="badge" style="background-color: var(--accent-amber-alpha); color: var(--accent-amber); font-size: 8px; padding: 2px 6px;">${item.warning_message || '⚠ Swapped'}</span>`;
+                warningBadge = `<span class="badge" style="background-color: var(--color-amber-muted); color: var(--color-amber);">${item.warning_message || '⚠ Swapped'}</span>`;
             }
 
             row.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div class="flex-between" style="align-items: flex-start;">
                     <div>
-                        <div style="font-weight: 600; font-size: 13px; color: var(--text-primary);">${item.home_team} vs ${item.away_team}</div>
-                        <div style="font-size: 10px; color: var(--text-secondary); margin-top: 2px;">
+                        <div class="text-sm text-bold">${item.home_team} vs ${item.away_team}</div>
+                        <div class="text-xs text-muted" style="margin-top: var(--space-1);">
                             <span>${item.league}</span>
                             ${warningBadge}
                         </div>
                     </div>
-                    <button onclick="removePick(${item.match_id})" class="btn btn-text" style="color: var(--accent-coral); padding: 0 4px; font-size: 16px; margin-top: -4px;">×</button>
+                    <button onclick="removePick(${item.match_id})" class="btn btn-text" style="color: var(--color-red); padding: 0 var(--space-1); font-size: var(--text-lg); margin-top: -4px;">×</button>
                 </div>
                 
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <select onchange="handleSlipDropdownChange(${item.match_id}, this.value)" class="form-input" style="padding: 6px 10px; font-size: 12px; flex-grow: 1;">
+                <div class="flex-align-center">
+                    <select onchange="handleSlipDropdownChange(${item.match_id}, this.value)" class="form-input" style="font-size: var(--text-xs); flex-grow: 1; padding: var(--space-1) var(--space-2); min-height: unset; height: auto;">
                         ${optionsHTML}
                     </select>
-                    <span class="badge ${item.confidence === 'HIGH' ? 'badge-high' : item.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}" style="font-size: 9px; padding: 4px 8px;">${item.confidence}</span>
+                    <span class="badge ${item.confidence === 'HIGH' ? 'badge-high' : item.confidence === 'MEDIUM' ? 'badge-medium' : 'badge-low'}">${item.confidence}</span>
                 </div>
             `;
             container.appendChild(row);

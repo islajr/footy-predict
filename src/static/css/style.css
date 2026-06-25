@@ -1073,11 +1073,13 @@ a:focus-visible {
     justify-content: center;
     z-index: 1000;
     opacity: 0;
+    pointer-events: none;
     transition: opacity var(--transition-normal);
 }
 
 .modal-backdrop.active {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .modal-content,
@@ -1237,4 +1239,57 @@ a:focus-visible {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Parlay Builder Components */
+.parlay-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: var(--space-5);
+}
+
+.sticky-slip {
+    position: sticky;
+    top: var(--space-4);
+    align-self: start;
+}
+
+@media (max-width: 1024px) {
+    .parlay-grid {
+        grid-template-columns: 1fr;
+    }
+    .sticky-slip {
+        position: static;
+    }
+}
+
+.card-sub {
+    background-color: var(--bg-surface-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: all var(--transition-fast);
+}
+.card-sub:hover {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-strong);
+}
+
+.parlay-slip-item {
+    background-color: var(--bg-surface-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    position: relative;
+    transition: all var(--transition-fast);
+}
+.parlay-slip-item.swapped {
+    border-color: var(--color-amber);
+    background-color: var(--color-amber-muted);
 }
