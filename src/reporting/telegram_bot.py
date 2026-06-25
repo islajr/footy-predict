@@ -45,8 +45,14 @@ logger = logging.getLogger(__name__)
 TELEGRAM_MAX_LEN = 4096
 
 
-def _split_message(text: str, max_len: int = TELEGRAM_MAX_LEN) -> list[str]:
+def _split_message(text: str | list[str], max_len: int = TELEGRAM_MAX_LEN) -> list[str]:
     """Split a long message into Telegram-safe chunks."""
+    if isinstance(text, list):
+        res = []
+        for chunk in text:
+            res.extend(_split_message(chunk, max_len))
+        return res
+
     if len(text) <= max_len:
         return [text]
 
@@ -372,8 +378,8 @@ class FootyBot:
                         else:
                             count = 0
                         total += count
-                except Exception as e:
-                    errors.append(f"{lg.name}: {e}")
+                    except Exception as e:
+                        errors.append(f"{lg.name}: {e}")
 
             result = f"✅ Fetched data for {total} fixtures across {len(LEAGUES)} leagues."
             if errors:

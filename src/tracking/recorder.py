@@ -238,13 +238,21 @@ class ResultRecorder:
     @staticmethod
     def _eval_1x2(pick: str, hs: int, as_: int) -> tuple[str, bool]:
         """Full-time result: '1' (Home), 'X' (Draw), '2' (Away)."""
+        norm_pick = pick.upper()
+        if norm_pick.startswith("1"):
+            norm_pick = "1"
+        elif norm_pick.startswith("X"):
+            norm_pick = "X"
+        elif norm_pick.startswith("2"):
+            norm_pick = "2"
+
         if hs > as_:
             actual = "1"
         elif hs == as_:
             actual = "X"
         else:
             actual = "2"
-        return actual, pick.upper() == actual
+        return actual, norm_pick == actual
 
     @staticmethod
     def _eval_double_chance(pick: str, hs: int, as_: int) -> tuple[str, bool]:
@@ -286,17 +294,29 @@ class ResultRecorder:
     @staticmethod
     def _eval_gg_ng(pick: str, hs: int, as_: int) -> tuple[str, bool]:
         """Both Teams To Score (GG) or No Goal by at least one side (NG)."""
+        norm_pick = pick.upper()
+        if norm_pick.startswith("GG"):
+            norm_pick = "GG"
+        elif norm_pick.startswith("NG"):
+            norm_pick = "NG"
+
         both_scored = hs > 0 and as_ > 0
         actual = "GG" if both_scored else "NG"
-        return actual, pick.upper() == actual
+        return actual, norm_pick == actual
 
     @staticmethod
     def _eval_draw_no_bet(pick: str, hs: int, as_: int) -> tuple[str, bool]:
         """Draw No Bet: void (push) on a draw."""
+        norm_pick = pick.lower()
+        if "home" in norm_pick:
+            norm_pick = "home"
+        elif "away" in norm_pick:
+            norm_pick = "away"
+
         if hs == as_:
             return "VOID", True  # push
         actual = "Home" if hs > as_ else "Away"
-        return actual, pick.lower() == actual.lower()
+        return actual, norm_pick == actual.lower()
 
     @staticmethod
     def _eval_win_to_nil(
@@ -306,10 +326,16 @@ class ResultRecorder:
         Win to Nil: the picked team wins AND the opponent scores 0.
         Pick format: 'Home' or 'Away'.
         """
+        norm_pick = pick.lower()
+        if "home" in norm_pick:
+            norm_pick = "home"
+        elif "away" in norm_pick:
+            norm_pick = "away"
+
         home_wtn = hs > as_ and as_ == 0
         away_wtn = as_ > hs and hs == 0
 
-        if pick.lower() == "home":
+        if norm_pick == "home":
             actual = "Home WTN" if home_wtn else ("Away WTN" if away_wtn else "No WTN")
             return actual, home_wtn
         else:
@@ -329,6 +355,12 @@ class ResultRecorder:
         Win Either Half: did the picked team win at least one half?
         Requires half-time scores. Pick format: 'Home' or 'Away'.
         """
+        norm_pick = pick.lower()
+        if "home" in norm_pick:
+            norm_pick = "home"
+        elif "away" in norm_pick:
+            norm_pick = "away"
+
         if ht_hs is None or ht_as is None:
             return "VOID", True  # can't evaluate without HT scores
 
@@ -341,7 +373,7 @@ class ResultRecorder:
         away_won_h1 = ht_as > ht_hs
         away_won_h2 = sh_as > sh_hs
 
-        if pick.lower() == "home":
+        if norm_pick == "home":
             won_half = home_won_h1 or home_won_h2
             actual = "Home won half" if won_half else "Home lost both halves"
             return actual, won_half
@@ -361,6 +393,18 @@ class ResultRecorder:
         under key ``'handicap_value'``, e.g. ``-1.5`` or ``+1``.
         Pick format: '1' / 'X' / '2' (after handicap applied).
         """
+        norm_pick = pick.upper()
+        if "HOME" in norm_pick:
+            norm_pick = "1"
+        elif "AWAY" in norm_pick:
+            norm_pick = "2"
+        elif norm_pick.startswith("1"):
+            norm_pick = "1"
+        elif norm_pick.startswith("2"):
+            norm_pick = "2"
+        elif norm_pick.startswith("X"):
+            norm_pick = "X"
+
         stats = prediction.get("supporting_stats", {})
         if isinstance(stats, str):
             try:
@@ -368,7 +412,8 @@ class ResultRecorder:
             except (json.JSONDecodeError, TypeError):
                 stats = {}
 
-        handicap = float(stats.get("handicap_value", 0))
+        # Support handicap_line as used by model_handicap
+        handicap = float(stats.get("handicap_value", stats.get("handicap_line", 0)))
 
         # Handicap applied to the home team
         adj_hs = hs + handicap
@@ -379,7 +424,7 @@ class ResultRecorder:
         else:
             actual = "2"
 
-        return f"{actual} (adj {adj_hs}-{as_})", pick.upper() == actual
+        return f"{actual} (adj {adj_hs}-{as_})", norm_pick == actual
 
     @staticmethod
     def _eval_team_over_under(

@@ -167,3 +167,49 @@ def test_eval_team_over_under():
     actual, is_correct = ResultRecorder._eval_team_over_under(pred, "Under", hs=1, as_=0, match=match)
     assert "Under 1.5" in actual
     assert is_correct is True
+
+def test_eval_pick_normalization():
+    # Test 1X2 pick normalization
+    actual, is_correct = ResultRecorder._eval_1x2("1 (Home Win)", hs=2, as_=1)
+    assert actual == "1"
+    assert is_correct is True
+
+    actual, is_correct = ResultRecorder._eval_1x2("X (Draw)", hs=1, as_=1)
+    assert actual == "X"
+    assert is_correct is True
+
+    actual, is_correct = ResultRecorder._eval_1x2("2 (Away Win)", hs=0, as_=2)
+    assert actual == "2"
+    assert is_correct is True
+
+    # Test GG/NG pick normalization
+    actual, is_correct = ResultRecorder._eval_gg_ng("GG (Both Teams Score)", hs=1, as_=1)
+    assert actual == "GG"
+    assert is_correct is True
+
+    actual, is_correct = ResultRecorder._eval_gg_ng("NG (No (clean sheet expected))", hs=2, as_=0)
+    assert actual == "NG"
+    assert is_correct is True
+
+    # Test Draw No Bet pick normalization
+    actual, is_correct = ResultRecorder._eval_draw_no_bet("DNB Home", hs=2, as_=1)
+    assert actual == "Home"
+    assert is_correct is True
+
+    # Test Win to Nil pick normalization
+    match = {}
+    actual, is_correct = ResultRecorder._eval_win_to_nil("Home Win to Nil", hs=2, as_=0, match=match)
+    assert "Home WTN" in actual
+    assert is_correct is True
+
+    # Test Win Either Half pick normalization
+    match = {}
+    actual, is_correct = ResultRecorder._eval_win_either_half("Home Win Either Half", hs=2, as_=1, ht_hs=1, ht_as=0, match=match)
+    assert "Home won half" in actual
+    assert is_correct is True
+
+    # Test Handicap pick normalization and fallback to handicap_line
+    pred = {"supporting_stats": json.dumps({"handicap_line": -1.5})}
+    actual, is_correct = ResultRecorder._eval_handicap(pred, "Home -1.5", hs=2, as_=0)
+    assert "1" in actual
+    assert is_correct is True

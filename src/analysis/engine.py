@@ -471,21 +471,28 @@ class AnalysisEngine:
             (f for f in factor_results if f.name == "scoring_frequency"), None
         )
         if scoring and scoring.data_points:
-            patterns["home_gpg"] = scoring.data_points.get("home_gpg")
-            patterns["away_gpg"] = scoring.data_points.get("away_gpg")
+            patterns["home_gpg"] = scoring.data_points.get("home", {}).get("avg_goals")
+            patterns["away_gpg"] = scoring.data_points.get("away", {}).get("avg_goals")
 
         defence = next(
             (f for f in factor_results if f.name == "defensive_record"), None
         )
         if defence and defence.data_points:
-            patterns["home_cs_rate"] = defence.data_points.get("home_cs_rate")
-            patterns["away_cs_rate"] = defence.data_points.get("away_cs_rate")
+            patterns["home_cs_rate"] = defence.data_points.get("home", {}).get("clean_sheet_rate")
+            patterns["away_cs_rate"] = defence.data_points.get("away", {}).get("clean_sheet_rate")
 
         form = next((f for f in factor_results if f.name == "recent_form"), None)
         if form and form.data_points:
-            patterns["home_win_rate"] = form.data_points.get("home_win_rate")
-            patterns["away_win_rate"] = form.data_points.get("away_win_rate")
-            patterns["draw_rate"] = form.data_points.get("draw_rate")
+            patterns["home_win_rate"] = form.data_points.get("home", {}).get("win_rate")
+            patterns["away_win_rate"] = form.data_points.get("away", {}).get("win_rate")
+            h_draw = form.data_points.get("home", {}).get("draw_rate")
+            a_draw = form.data_points.get("away", {}).get("draw_rate")
+            if h_draw is not None and a_draw is not None:
+                patterns["draw_rate"] = (h_draw + a_draw) / 2.0
+            elif h_draw is not None:
+                patterns["draw_rate"] = h_draw
+            else:
+                patterns["draw_rate"] = a_draw
 
         return patterns
 

@@ -88,6 +88,44 @@ def _parse_date(date_str: str) -> str:
 
 def _safe_attr(obj: Any, attr: str, default: Any = None) -> Any:
     """Safely get an attribute that may exist on a dataclass or dict."""
+    if obj is None:
+        return default
+
+    # 1. Direct checks
+    if isinstance(obj, dict):
+        if attr in obj:
+            return obj[attr]
+    else:
+        if hasattr(obj, attr):
+            return getattr(obj, attr)
+
+    # 2. Virtual mappings
+    if attr == "match":
+        home = _safe_attr(obj, "home_team")
+        away = _safe_attr(obj, "away_team")
+        date = _safe_attr(obj, "match_date")
+        league = _safe_attr(obj, "league")
+        if home is not None or away is not None or date is not None or league is not None:
+            return {
+                "home_team_name": home or "Home",
+                "away_team_name": away or "Away",
+                "date": date or "",
+                "league_name": league or ""
+            }
+    elif attr == "recommendations":
+        val = _safe_attr(obj, "market_recommendations")
+        if val is not None:
+            return val
+    elif attr == "risk_factors":
+        val = _safe_attr(obj, "risk_flags")
+        if val is not None:
+            return val
+    elif attr == "market":
+        val = _safe_attr(obj, "market_code")
+        if val is not None:
+            return val
+
+    # 3. Fallback
     if isinstance(obj, dict):
         return obj.get(attr, default)
     return getattr(obj, attr, default)
