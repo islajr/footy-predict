@@ -170,6 +170,32 @@ h2 { font-size: var(--text-2xl); }
 h3 { font-size: var(--text-xl); }
 h4 { font-size: var(--text-lg); }
 
+.subtitle {
+    font-size: var(--text-md);
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+.text-muted {
+    color: var(--text-secondary);
+}
+
+.text-tertiary {
+    color: var(--text-tertiary);
+}
+
+.text-xs {
+    font-size: var(--text-xs);
+}
+
+.text-sm {
+    font-size: var(--text-sm);
+}
+
+.text-bold {
+    font-weight: 600;
+}
+
 /* Focus Styling */
 button:focus-visible,
 input:focus-visible,
@@ -560,6 +586,10 @@ a:focus-visible {
     margin-bottom: var(--space-4);
 }
 
+.form-group-inline {
+    margin-bottom: 0;
+}
+
 .form-group label {
     font-size: var(--text-xs);
     font-weight: 600;
@@ -604,6 +634,63 @@ a:focus-visible {
     width: 14px;
     height: 14px;
     accent-color: var(--accent);
+}
+
+/* ─── Layout Utilities ───────────────────────────────────────── */
+
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.flex-align-center {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.actions-group {
+    display: flex;
+    gap: var(--space-3);
+    margin-bottom: var(--space-6);
+    flex-wrap: wrap;
+}
+
+.section-header {
+    margin-bottom: var(--space-6);
+}
+
+/* Pick Card Component */
+.pick-card {
+    background-color: var(--bg-surface-hover);
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-primary);
+    border-left: 4px solid var(--color-green);
+    transition: all var(--transition-fast);
+}
+
+.pick-card:hover {
+    background-color: var(--bg-elevated);
+    border-color: var(--border-strong);
+    transform: translateY(-1px);
+}
+
+.pick-card-meta {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: var(--space-1);
+}
+
+.pick-card-title {
+    font-weight: 600;
+    font-size: var(--text-md);
+    color: var(--text-primary);
+    margin-bottom: var(--space-2);
 }
 
 /* ─── Grid layouts ────────────────────────────────────────────── */

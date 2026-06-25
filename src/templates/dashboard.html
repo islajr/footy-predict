@@ -4,13 +4,13 @@
 {% block header_title %}Dashboard{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 32px;">
+<div class="section-header">
     <h1>Welcome back, Bettor!</h1>
     <p class="subtitle">Data-backed analysis & parlay builder for Europe's top leagues.</p>
 </div>
 
 <!-- Quick Actions Strip -->
-<div style="display: flex; gap: 16px; margin-bottom: 32px; flex-wrap: wrap;">
+<div class="actions-group">
     <button onclick="triggerGlobalFetch()" class="btn btn-primary">
         <span>Refresh Match Data</span>
     </button>
@@ -23,15 +23,15 @@
 </div>
 
 <!-- Main Dashboard Split Grid -->
-<div class="dashboard-grid">
+<div class="grid-sidebar">
     <!-- Left: Upcoming Fixtures Chronological -->
     <div>
         <div class="card">
-            <div class="card-title">
+            <div class="card-title flex-between">
                 <span>Upcoming Matchweek Fixtures</span>
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <span style="font-size: 12px; font-weight: normal; color: var(--text-secondary);">Filtered by active leagues</span>
-                    <button id="upcoming-toggle" onclick="toggleCard('upcoming')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
+                <div class="flex-align-center">
+                    <span class="text-muted text-xs">Filtered by active leagues</span>
+                    <button id="upcoming-toggle" onclick="toggleCard('upcoming')" class="btn btn-secondary text-xs">Hide</button>
                 </div>
             </div>
             
@@ -49,9 +49,9 @@
                     <tbody>
                         {% for m in matches %}
                         <tr>
-                            <td style="color: var(--text-secondary); font-size: 13px;">{{ m.date }}</td>
-                            <td style="font-weight: 600;">{{ m.home_team }} vs {{ m.away_team }}</td>
-                            <td><span class="badge badge-medium" style="background-color: var(--bg-elevated); color: var(--text-primary); font-size: 10px;">{{ m.league }}</span></td>
+                            <td class="text-muted text-sm">{{ m.date }}</td>
+                            <td class="text-bold">{{ m.home_team }} vs {{ m.away_team }}</td>
+                            <td><span class="badge badge-medium">{{ m.league }}</span></td>
                             <td style="text-align: right;">
                                 <a href="/analysis/match/{{ m.id }}" class="btn-text">Analyze →</a>
                             </td>
@@ -60,39 +60,39 @@
                     </tbody>
                 </table>
                 {% else %}
-                <div style="text-align: center; padding: 40px 0; color: var(--text-secondary);">
-                    <p style="font-size: 15px; margin-bottom: 8px;">No upcoming matches found in the next 7 days.</p>
-                    <p style="font-size: 13px;">Try triggering a data fetch using the refresh button.</p>
+                <div style="text-align: center; padding: var(--space-8) 0; color: var(--text-secondary);">
+                    <p style="font-size: var(--text-md); margin-bottom: var(--space-2);">No upcoming matches found in the next 7 days.</p>
+                    <p style="font-size: var(--text-sm);">Try triggering a data fetch using the refresh button.</p>
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 
-    <!-- Right: Top High-Confidence Picks Strip -->
-    <div>
+    <!-- Right: Top High-Confidence Picks Strip & Metadata -->
+    <div style="display: flex; flex-direction: column; gap: var(--space-4);">
         <div class="card">
-            <div class="card-title">
+            <div class="card-title flex-between">
                 <span>Top High-Confidence Picks</span>
-                <button id="picks-toggle" onclick="toggleCard('picks')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
+                <button id="picks-toggle" onclick="toggleCard('picks')" class="btn btn-secondary text-xs">Hide</button>
             </div>
             
             <div id="picks-body">
                 {% if top_picks %}
-                <div style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="display: flex; flex-direction: column; gap: var(--space-3);">
                     {% for p in top_picks %}
-                    <div style="background-color: var(--bg-surface-hover); padding: 16px; border-radius: var(--border-radius-lg); border-left: 4px solid var(--accent-emerald);">
-                        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px;">{{ p.league }}</div>
-                        <div style="font-weight: 600; font-size: 14px; margin-bottom: 8px;">{{ p.home_team }} vs {{ p.away_team }}</div>
+                    <div class="pick-card">
+                        <div class="pick-card-meta">{{ p.league }}</div>
+                        <div class="pick-card-title">{{ p.home_team }} vs {{ p.away_team }}</div>
                         <div class="flex-between">
-                            <span style="font-weight: 700; color: var(--accent-emerald);">{{ p.market_name }}: {{ p.pick }}</span>
+                            <span class="text-bold" style="color: var(--color-green);">{{ p.market_name }}: {{ p.pick }}</span>
                             <span class="badge badge-high">{{ (p.probability * 100)|int }}% Prob</span>
                         </div>
                     </div>
                     {% endfor %}
                 </div>
                 {% else %}
-                <div style="text-align: center; padding: 30px 0; color: var(--text-secondary); font-size: 14px;">
+                <div style="text-align: center; padding: var(--space-6) 0; color: var(--text-muted); font-size: var(--text-sm);">
                     No high-confidence picks available right now. Analyze matches or fetch new data first.
                 </div>
                 {% endif %}
@@ -100,28 +100,28 @@
         </div>
         
         <!-- Database statistics overview -->
-        <div class="card" style="padding: 20px;">
-            <div class="card-title" style="margin-bottom: 12px; font-size: 14px;">
+        <div class="card">
+            <div class="card-title flex-between">
                 <span>Database Metadata</span>
-                <button id="meta-toggle" onclick="toggleCard('meta')" class="btn btn-secondary" style="padding: 2px 8px; font-size: 11px; border-radius: 6px; cursor: pointer;">Hide</button>
+                <button id="meta-toggle" onclick="toggleCard('meta')" class="btn btn-secondary text-xs">Hide</button>
             </div>
             
-            <div id="meta-body" style="display: flex; flex-direction: column; gap: 8px; font-size: 13px;">
+            <div id="meta-body" style="display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm);">
                 <div class="flex-between">
-                    <span style="color: var(--text-secondary);">Tracked Leagues</span>
-                    <span style="font-weight: 600;">{{ stats.leagues_count }}</span>
+                    <span class="text-muted">Tracked Leagues</span>
+                    <span class="text-bold">{{ stats.leagues_count }}</span>
                 </div>
                 <div class="flex-between">
-                    <span style="color: var(--text-secondary);">Registered Teams</span>
-                    <span style="font-weight: 600;">{{ stats.teams_count }}</span>
+                    <span class="text-muted">Registered Teams</span>
+                    <span class="text-bold">{{ stats.teams_count }}</span>
                 </div>
                 <div class="flex-between">
-                    <span style="color: var(--text-secondary);">Total Match Records</span>
-                    <span style="font-weight: 600;">{{ stats.matches_count }}</span>
+                    <span class="text-muted">Total Match Records</span>
+                    <span class="text-bold">{{ stats.matches_count }}</span>
                 </div>
                 <div class="flex-between">
-                    <span style="color: var(--text-secondary);">Predictions Saved</span>
-                    <span style="font-weight: 600;">{{ stats.predictions_count }}</span>
+                    <span class="text-muted">Predictions Saved</span>
+                    <span class="text-bold">{{ stats.predictions_count }}</span>
                 </div>
             </div>
         </div>

@@ -4,26 +4,26 @@
 {% block header_title %}Picks{% endblock %}
 
 {% block content %}
-<div style="margin-bottom: 32px;">
+<div class="section-header">
     <h1>High-Confidence Recommendations</h1>
     <p class="subtitle">Filterable list of safest system-generated predictions for matchweek building.</p>
 </div>
 
 <!-- Filters Bar Card -->
-<div class="card" style="padding: 16px; margin-bottom: 24px;">
-    <form method="GET" action="/picks" style="display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap;">
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Confidence Threshold</label>
-            <select name="min_confidence" class="form-input" style="padding: 8px; width: 140px;">
+<div class="card" style="margin-bottom: var(--space-5);">
+    <form method="GET" action="/picks" style="display: flex; gap: var(--space-4); align-items: flex-end; flex-wrap: wrap;">
+        <div class="form-group form-group-inline">
+            <label for="min_confidence">Confidence Threshold</label>
+            <select id="min_confidence" name="min_confidence" class="form-input" style="width: 140px;">
                 <option value="HIGH" {% if min_confidence == 'HIGH' %}selected{% endif %}>High Only</option>
                 <option value="MEDIUM" {% if min_confidence == 'MEDIUM' %}selected{% endif %}>Medium +</option>
                 <option value="LOW" {% if min_confidence == 'LOW' %}selected{% endif %}>All (Low+)</option>
             </select>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">League Filter</label>
-            <select name="league" class="form-input" style="padding: 8px; width: 180px;">
+        <div class="form-group form-group-inline">
+            <label for="league">League Filter</label>
+            <select id="league" name="league" class="form-input" style="width: 180px;">
                 <option value="">All Leagues</option>
                 {% for lg in leagues %}
                 <option value="{{ lg.slug }}" {% if selected_league == lg.slug %}selected{% endif %}>{{ lg.name }}</option>
@@ -31,9 +31,9 @@
             </select>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 6px;">
-            <label style="font-size: 12px; font-weight: 600; color: var(--text-secondary);">Market Type</label>
-            <select name="market" class="form-input" style="padding: 8px; width: 180px;">
+        <div class="form-group form-group-inline">
+            <label for="market">Market Type</label>
+            <select id="market" name="market" class="form-input" style="width: 180px;">
                 <option value="">All Markets</option>
                 {% for mk in markets %}
                 <option value="{{ mk.market_code }}" {% if selected_market == mk.market_code %}selected{% endif %}>{{ mk.display_name }}</option>
@@ -41,8 +41,8 @@
             </select>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="padding: 8px 16px; height: 38px;">Apply Filters</button>
-        <a href="/picks" class="btn btn-secondary" style="padding: 8px 16px; height: 38px; line-height: 20px;">Reset</a>
+        <button type="submit" class="btn btn-primary">Apply Filters</button>
+        <a href="/picks" class="btn btn-secondary">Reset</a>
     </form>
 </div>
 
@@ -66,20 +66,20 @@
         <tbody>
             {% for p in picks %}
             <tr id="row-{{ p.match_id }}-{{ p.market_code }}">
-                <td style="color: var(--text-secondary); font-size: 13px;">{{ p.match_date }}</td>
-                <td style="font-weight: 600;">{{ p.home_team }} vs {{ p.away_team }}</td>
-                <td><span class="badge" style="background-color: var(--bg-elevated); color: var(--text-primary); font-size: 10px;">{{ p.league }}</span></td>
+                <td class="text-muted text-sm">{{ p.match_date }}</td>
+                <td class="text-bold">{{ p.home_team }} vs {{ p.away_team }}</td>
+                <td><span class="badge">{{ p.league }}</span></td>
                 <td>{{ p.market_name }}</td>
-                <td style="font-weight: 700; color: var(--accent-emerald);">{{ p.pick }}</td>
-                <td style="text-align: right; font-weight: 600;">{{ (p.probability * 100)|int }}%</td>
-                <td style="text-align: right; color: var(--accent-blue);">{{ "%.2f"|format(p.implied_odds) }}</td>
+                <td class="text-bold" style="color: var(--color-green);">{{ p.pick }}</td>
+                <td class="text-bold" style="text-align: right;">{{ (p.probability * 100)|int }}%</td>
+                <td class="text-bold" style="text-align: right; color: var(--accent);">{{ "%.2f"|format(p.implied_odds) }}</td>
                 <td>
                     <span class="badge {% if p.confidence == 'HIGH' %}badge-high{% elif p.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">
                         {{ p.confidence }}
                     </span>
                 </td>
                 <td style="text-align: right;">
-                    <button onclick="addToParlaySlip({{ p.match_id }}, '{{ p.market_code }}', '{{ p.home_team }} vs {{ p.away_team }}', '{{ p.market_name }}', '{{ p.pick }}', {{ p.probability }}, '{{ p.confidence }}', {{ p.implied_odds }})" class="btn btn-secondary btn-text" style="font-size: 12px; padding: 4px 8px;">
+                    <button onclick="addToParlaySlip({{ p.match_id }}, '{{ p.market_code }}', {{ (p.home_team ~ ' vs ' ~ p.away_team)|tojson }}, {{ p.market_name|tojson }}, {{ p.pick|tojson }}, {{ p.probability }}, '{{ p.confidence }}', {{ p.implied_odds }})" class="btn btn-secondary btn-text text-xs">
                         + Slip
                     </button>
                 </td>
@@ -88,9 +88,9 @@
         </tbody>
     </table>
     {% else %}
-    <div style="text-align: center; padding: 60px 0; color: var(--text-secondary);">
-        <p style="font-size: 16px; margin-bottom: 8px;">No recommendations found matching your filter criteria.</p>
-        <p style="font-size: 13px;">Try lowering the confidence threshold or run a fetch/analysis first.</p>
+    <div style="text-align: center; padding: var(--space-8) 0; color: var(--text-secondary);">
+        <p style="font-size: var(--text-md); margin-bottom: var(--space-2);">No recommendations found matching your filter criteria.</p>
+        <p style="font-size: var(--text-sm);">Try lowering the confidence threshold or run a fetch/analysis first.</p>
     </div>
     {% endif %}
 </div>
