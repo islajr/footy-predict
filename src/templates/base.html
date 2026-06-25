@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Footy Predict{% endblock %}</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/helpers.js" defer></script>
     <style>
         @keyframes spin {
             0% { transform: rotate(0deg); }
@@ -22,63 +23,65 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <!-- Logo -->
-            <a href="/" class="logo-container" style="display: flex; align-items: center; gap: 10px; margin-bottom: 32px; padding-left: 4px; text-decoration: none;">
-                <span style="width:32px; height:32px; border-radius:10px; background: linear-gradient(135deg, var(--accent-blue), #5E5CE6); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <a href="/" class="logo-container">
+                <span class="logo-icon">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 7.07 2.93M4.93 4.93A10 10 0 0 0 2 12M12 22a10 10 0 0 1-7.07-2.93"/>
                         <path d="m9 12 2 2 4-4"/>
                     </svg>
                 </span>
-                <span class="logo-text" style="color: var(--text-primary); font-size: 15px; font-weight: 700; letter-spacing: -0.3px;">Footy Predict</span>
+                <span class="logo-text">Footy Predict</span>
             </a>
 
-            <nav class="nav-menu">
-                <li class="nav-item {% if active_page == 'home' %}active{% endif %}">
-                    <a href="/">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-                        <span>Home</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
-                    <a href="/dashboard">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-                        <span>Dashboard</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'analysis' %}active{% endif %}">
-                    <a href="/analysis">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                        <span>Analysis</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'picks' %}active{% endif %}">
-                    <a href="/picks">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-                        <span>Picks</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'parlay' %}active{% endif %}">
-                    <a href="/parlay">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
-                        <span>Parlay Builder</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'statistics' %}active{% endif %}">
-                    <a href="/statistics">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                        <span>Statistics</span>
-                    </a>
-                </li>
-                <li class="nav-item {% if active_page == 'settings' %}active{% endif %}">
-                    <a href="/settings">
-                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 0 4.93 19.07M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-                        <span>Settings</span>
-                    </a>
-                </li>
+            <nav>
+                <ul class="nav-menu">
+                    <li>
+                        <a href="/" class="nav-item {% if active_page == 'home' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                            <span>Home</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/dashboard" class="nav-item {% if active_page == 'dashboard' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                            <span>Dashboard</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/analysis" class="nav-item {% if active_page == 'analysis' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            <span>Analysis</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/picks" class="nav-item {% if active_page == 'picks' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                            <span>Picks</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/parlay" class="nav-item {% if active_page == 'parlay' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                            <span>Parlay Builder</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/statistics" class="nav-item {% if active_page == 'statistics' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                            <span>Statistics</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="/settings" class="nav-item {% if active_page == 'settings' %}active{% endif %}">
+                            <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 0 4.93 19.07M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                            <span>Settings</span>
+                        </a>
+                    </li>
+                </ul>
             </nav>
 
             <div class="sidebar-footer">
-                <button onclick="triggerGlobalFetch()" class="btn btn-secondary btn-full" style="width: 100%; gap: 8px;">
+                <button onclick="triggerGlobalFetch()" class="btn btn-secondary btn-full">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.88"/></svg>
                     <span>Refresh Data</span>
                 </button>
@@ -100,7 +103,7 @@
                     </div>
 
                     <!-- Theme Toggle Switch -->
-                    <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme" style="background-color: var(--bg-surface-hover); border: 1px solid var(--border-color); padding: 6px 12px; border-radius: 20px; display: flex; align-items: center; gap: 8px; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: var(--transition-smooth); box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
                         <span>Toggle Theme</span>
                     </button>
                 </div>
@@ -124,42 +127,51 @@
     </div>
 
     <!-- Fetch Progress Modal -->
-    <div id="fetch-progress-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: rgba(0, 0, 0, 0.6); backdrop-filter: blur(5px); -webkit-backdrop-filter: blur(5px); z-index: 9999; align-items: center; justify-content: center;">
-        <div class="card" style="width: 100%; max-width: 600px; padding: 24px; display: flex; flex-direction: column; height: 450px; margin-bottom: 0;">
-            <h3 style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
-                <span>↻ Data Synchronization</span>
-                <span id="fetch-modal-status" class="badge badge-medium" style="font-size: 11px;">Running</span>
-            </h3>
-            
-            <p id="fetch-modal-progress" style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">Initializing connection...</p>
-            
-            <!-- Log Console -->
-            <div id="fetch-modal-logs" style="flex-grow: 1; background-color: #000000; border-radius: var(--border-radius-md); padding: 12px; font-family: monospace; font-size: 12px; color: #00C896; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border-color); text-align: left; line-height: 1.4;">
-                <!-- Logs appended here -->
+    <div id="fetch-progress-modal" class="modal-backdrop">
+        <div class="modal-content" style="height: 450px; max-width: 600px;">
+            <div class="modal-header">
+                <h3>↻ Data Synchronization</h3>
+                <span id="fetch-modal-status" class="badge badge-medium">Running</span>
             </div>
             
-            <div id="fetch-modal-actions" style="display: flex; justify-content: flex-end; margin-top: 16px; gap: 12px;">
-                <button id="fetch-modal-cancel-btn" onclick="cancelFetchSync()" class="btn btn-danger" style="padding: 8px 16px;">Cancel Sync</button>
-                <button id="fetch-modal-minimize-btn" onclick="minimizeFetchModal()" class="btn btn-secondary" style="padding: 8px 16px;">Run in Background</button>
-                <button id="fetch-modal-close-btn" onclick="closeFetchModal(true)" class="btn btn-primary" style="display: none; padding: 8px 16px;">Close & Reload</button>
+            <div class="modal-body" style="display: flex; flex-direction: column; height: calc(100% - 110px); gap: var(--space-3); padding-bottom: 0;">
+                <p id="fetch-modal-progress">Initializing connection...</p>
+                
+                <!-- Log Console -->
+                <div id="fetch-modal-logs" class="console-log">
+                    <!-- Logs appended here -->
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button id="fetch-modal-cancel-btn" onclick="cancelFetchSync()" class="btn btn-danger">Cancel Sync</button>
+                <button id="fetch-modal-minimize-btn" onclick="minimizeFetchModal()" class="btn btn-secondary">Run in Background</button>
+                <button id="fetch-modal-close-btn" onclick="closeFetchModal(true)" class="btn btn-primary" style="display: none;">Close & Reload</button>
             </div>
         </div>
     </div>
 
     <!-- Floating Background Sync Status Banner -->
-    <div id="fetch-floating-status" style="display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9998; width: 320px; padding: 14px 18px; border-radius: var(--border-radius-xl); background-color: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--card-shadow); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); align-items: center; justify-content: space-between; gap: 12px; transition: var(--transition-smooth); animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);">
-        <div style="display: flex; align-items: center; gap: 12px; overflow: hidden; flex-grow: 1;">
-            <div id="fetch-floating-spinner" class="spinner" style="width: 18px; height: 18px; border: 2px solid var(--border-color); border-top: 2px solid var(--accent-emerald); border-radius: 50%; animation: spin 1s linear infinite; flex-shrink: 0;"></div>
+    <div id="fetch-floating-status" class="floating-sync-banner">
+        <div style="display: flex; align-items: center; gap: var(--space-3); overflow: hidden; flex-grow: 1;">
+            <div id="fetch-floating-spinner" class="spinner"></div>
             <div style="display: flex; flex-direction: column; gap: 1px; min-width: 0; flex-grow: 1;">
                 <span style="font-size: 13px; font-weight: 600; color: var(--text-primary);">Syncing Data...</span>
                 <span id="fetch-floating-progress" style="font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; width: 100%;">Initializing...</span>
             </div>
         </div>
-        <button onclick="reopenFetchModal()" class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px; border-radius: var(--border-radius-md); font-weight: 600; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">View</button>
+        <button onclick="reopenFetchModal()" class="btn btn-secondary" style="flex-shrink: 0;">View</button>
     </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <!-- Global Layout Scripts -->
     <script>
+
+
+
+
         function toggleTheme() {
             const htmlEl = document.documentElement;
             const currentTheme = htmlEl.getAttribute('data-theme') || 'dark';
@@ -221,7 +233,12 @@
         }
 
         function minimizeFetchModal() {
-            document.getElementById('fetch-progress-modal').style.display = "none";
+            const modal = document.getElementById('fetch-progress-modal');
+            modal.classList.remove('active');
+            setTimeout(() => {
+                modal.style.display = "none";
+            }, 220);
+            
             if (activeTaskId) {
                 fetch(`/api/v1/fetch/status/${activeTaskId}`)
                     .then(r => r.ok ? r.json() : null)
@@ -248,7 +265,11 @@
             if (floatingBanner) {
                 floatingBanner.style.display = "none";
             }
+            
             modal.style.display = "flex";
+            requestAnimationFrame(() => {
+                modal.classList.add('active');
+            });
 
             if (activeTaskId) {
                 if (fetchEventSource === null) {
@@ -272,7 +293,11 @@
             const closeBtn = document.getElementById('fetch-modal-close-btn');
             const floatingBanner = document.getElementById('fetch-floating-status');
 
-            logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Cancelling synchronization...</div>";
+            const logDiv = document.createElement('div');
+            logDiv.style.color = "var(--color-red)";
+            logDiv.style.fontWeight = "500";
+            logDiv.textContent = "[SYSTEM] Cancelling synchronization...";
+            logsContainer.appendChild(logDiv);
             logsContainer.scrollTop = logsContainer.scrollHeight;
 
             fetch(`/api/v1/fetch/cancel/${activeTaskId}`, { method: 'POST' })
@@ -294,7 +319,10 @@
                     }
                 })
                 .catch(e => {
-                    logsContainer.innerHTML += `<div style="color: var(--accent-coral);">[ERROR] Cancel failed: ${e.message}</div>`;
+                    const errDiv = document.createElement('div');
+                    errDiv.style.color = "var(--color-red)";
+                    errDiv.textContent = `[ERROR] Cancel failed: ${e.message}`;
+                    logsContainer.appendChild(errDiv);
                 });
         }
 
@@ -318,7 +346,7 @@
 
                     if (payload.log) {
                         const logDiv = document.createElement('div');
-                        logDiv.innerText = payload.log;
+                        logDiv.textContent = payload.log;
                         logsContainer.appendChild(logDiv);
                         logsContainer.scrollTop = logsContainer.scrollHeight;
                     }
@@ -333,7 +361,13 @@
                     if (payload.done) {
                         statusEl.className = "badge badge-high";
                         statusEl.innerText = "SUCCESS";
-                        logsContainer.innerHTML += "<div style='color: white; font-weight: bold;'>[SYSTEM] Synchronization complete!</div>";
+                        
+                        const logDiv = document.createElement('div');
+                        logDiv.style.color = "var(--color-green)";
+                        logDiv.style.fontWeight = "bold";
+                        logDiv.textContent = "[SYSTEM] Synchronization complete!";
+                        logsContainer.appendChild(logDiv);
+                        
                         logsContainer.scrollTop = logsContainer.scrollHeight;
                         cancelBtn.style.display = "none";
                         minimizeBtn.style.display = "none";
@@ -362,7 +396,12 @@
 
             fetchEventSource.onerror = function(err) {
                 console.error("EventSource error", err);
-                logsContainer.innerHTML += "<div style='color: var(--accent-coral);'>[SYSTEM] Stream disconnected. Fetch running in background.</div>";
+                
+                const logDiv = document.createElement('div');
+                logDiv.style.color = "var(--color-amber)";
+                logDiv.textContent = "[SYSTEM] Stream disconnected. Fetch running in background.";
+                logsContainer.appendChild(logDiv);
+                
                 logsContainer.scrollTop = logsContainer.scrollHeight;
                 cancelBtn.style.display = "none";
                 minimizeBtn.style.display = "none";
@@ -385,7 +424,11 @@
             if (floatingBanner) {
                 floatingBanner.style.display = "none";
             }
+            
             modal.style.display = "flex";
+            requestAnimationFrame(() => {
+                modal.classList.add('active');
+            });
 
             if (fetchEventSource !== null) {
                 return;
@@ -396,7 +439,11 @@
                 return;
             }
 
-            logsContainer.innerHTML = "<div>[SYSTEM] Sending synchronization request...</div>";
+            logsContainer.innerHTML = "";
+            const initDiv = document.createElement('div');
+            initDiv.textContent = "[SYSTEM] Sending synchronization request...";
+            logsContainer.appendChild(initDiv);
+            
             progressEl.innerText = "Initializing connection...";
             statusEl.className = "badge badge-medium";
             statusEl.innerText = "RUNNING";
@@ -413,12 +460,19 @@
                     const taskId = data.task_id;
                     activeTaskId = taskId;
                     localStorage.setItem('active_fetch_task_id', taskId);
-                    logsContainer.innerHTML += `<div>[SYSTEM] Task started (ID: ${taskId}). Opening stream...</div>`;
+                    
+                    const startDiv = document.createElement('div');
+                    startDiv.textContent = `[SYSTEM] Task started (ID: ${taskId}). Opening stream...`;
+                    logsContainer.appendChild(startDiv);
                     
                     connectToSyncStream(taskId);
                 })
                 .catch(e => {
-                    logsContainer.innerHTML += `<div style="color: var(--accent-coral);">[ERROR] ${e.message}</div>`;
+                    const errDiv = document.createElement('div');
+                    errDiv.style.color = "var(--color-red)";
+                    errDiv.textContent = `[ERROR] ${e.message}`;
+                    logsContainer.appendChild(errDiv);
+                    
                     statusEl.className = "badge badge-low";
                     statusEl.innerText = "ERROR";
                     cancelBtn.style.display = "none";
@@ -428,7 +482,12 @@
         }
 
         function closeFetchModal(reload = false) {
-            document.getElementById('fetch-progress-modal').style.display = "none";
+            const modal = document.getElementById('fetch-progress-modal');
+            modal.classList.remove('active');
+            setTimeout(() => {
+                modal.style.display = "none";
+            }, 220);
+            
             if (fetchEventSource) {
                 fetchEventSource.close();
                 fetchEventSource = null;

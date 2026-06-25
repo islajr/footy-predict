@@ -128,32 +128,7 @@
         });
     });
 
-    function testKey(provider) {
-        const key = document.getElementById(provider + '_key').value.trim();
-        const statusDiv = document.getElementById('status-' + provider);
-        statusDiv.innerText = 'Testing connection...';
-        statusDiv.className = 'test-status';
 
-        fetch('/api/v1/settings/test-key', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ provider: provider, key: key })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.valid) {
-                statusDiv.innerText = '✓ Key valid. Quota: ' + data.quota_remaining + ' calls remaining.';
-                statusDiv.style.color = 'var(--accent-emerald)';
-            } else {
-                statusDiv.innerText = '✗ Invalid: ' + (data.error || 'Check credentials');
-                statusDiv.style.color = 'var(--accent-coral)';
-            }
-        })
-        .catch(e => {
-            statusDiv.innerText = '✗ Test failed: ' + e;
-            statusDiv.style.color = 'var(--accent-coral)';
-        });
-    }
 
     function saveGeneralSettings() {
         const apiFootballKey = document.getElementById('api_football_key').value.trim();

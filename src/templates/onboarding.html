@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome to Footy Predict</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/helpers.js" defer></script>
     <style>
         body {
             background-color: var(--bg-base);
@@ -12,73 +13,159 @@
             align-items: center;
             justify-content: center;
             min-height: 100vh;
+            padding: var(--space-4);
         }
         .onboarding-card {
             background-color: var(--bg-surface);
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-xl);
-            padding: 40px;
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-xl);
+            padding: var(--space-8);
             max-width: 600px;
             width: 100%;
-            box-shadow: var(--card-shadow);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            box-shadow: var(--shadow-lg);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            animation: fadeSlideUp var(--duration-normal) var(--ease-spring);
+        }
+        .onboarding-logo {
+            display: flex;
+            justify-content: center;
+            margin-bottom: var(--space-6);
+            text-decoration: none;
+        }
+        .onboarding-logo .logo-text {
+            font-size: var(--text-2xl);
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            font-family: var(--font-display);
+            color: var(--text-primary);
+        }
+        .onboarding-steps {
+            display: flex;
+            justify-content: center;
+            gap: var(--space-4);
+            margin-bottom: var(--space-8);
+        }
+        .step-indicator {
+            width: 28px;
+            height: 28px;
+            border-radius: var(--radius-full);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: var(--text-sm);
+            font-weight: 600;
+            color: var(--text-tertiary);
+            background-color: var(--bg-surface-hover);
+            border: 1px solid var(--border-primary);
+            transition: all var(--transition-fast);
+        }
+        .step-indicator.active {
+            background-color: var(--accent);
+            color: #FFFFFF;
+            border-color: var(--accent);
+            box-shadow: var(--shadow-xs);
+        }
+        .step-indicator.completed {
+            background-color: var(--color-green-muted);
+            color: var(--color-green);
+            border-color: var(--color-green);
         }
         .onboarding-step-content {
             display: none;
         }
         .onboarding-step-content.active {
             display: block;
+            animation: fadeSlideUp var(--duration-normal) var(--ease-out);
+        }
+        .step-title {
+            font-size: var(--text-xl);
+            font-weight: 600;
+            margin-bottom: var(--space-2);
+            color: var(--text-primary);
+            font-family: var(--font-display);
+        }
+        .step-desc {
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+            line-height: var(--leading-normal);
+            margin-bottom: var(--space-5);
         }
         .step-buttons {
             display: flex;
             justify-content: space-between;
-            margin-top: 32px;
+            margin-top: var(--space-8);
         }
         .league-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
+            gap: var(--space-3);
             max-height: 250px;
             overflow-y: auto;
-            padding: 8px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-md);
+            padding: var(--space-3);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
             background-color: var(--bg-surface-hover);
         }
         .market-list {
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: var(--space-2);
             max-height: 250px;
             overflow-y: auto;
-            padding: 8px;
-            border: 1px solid var(--border-color);
-            border-radius: var(--border-radius-md);
+            padding: var(--space-3);
+            border: 1px solid var(--border-primary);
+            border-radius: var(--radius-md);
             background-color: var(--bg-surface-hover);
         }
-        .checkbox-label {
+        .market-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-primary);
+            padding-bottom: var(--space-2);
+            margin-bottom: var(--space-2);
+        }
+        .market-row:last-child {
+            border-bottom: none;
+            padding-bottom: 0;
+            margin-bottom: 0;
+        }
+        .slider-group {
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: var(--space-3);
+        }
+        .slider-group input[type="range"] {
             cursor: pointer;
-            font-size: 14px;
+            accent-color: var(--accent);
+        }
+        .slider-value {
+            font-size: var(--text-sm);
+            font-weight: 600;
+            color: var(--text-secondary);
+            min-width: 36px;
+            text-align: right;
         }
         .test-btn-container {
             display: flex;
-            gap: 8px;
+            gap: var(--space-2);
+            margin-top: var(--space-2);
+        }
+        .test-btn-container .form-input {
+            flex-grow: 1;
         }
         .test-status {
-            font-size: 12px;
+            font-size: var(--text-xs);
             font-weight: 600;
-            margin-top: 4px;
+            margin-top: var(--space-2);
         }
     </style>
 </head>
 <body>
     <div class="onboarding-card">
-        <div class="logo-container" style="justify-content: center; margin-bottom: 20px;">
-            <span class="logo-text" style="font-size: 24px;">Footy Predict</span>
+        <div class="onboarding-logo">
+            <span class="logo-text">Footy Predict</span>
         </div>
         
         <!-- Steps Header -->
@@ -92,19 +179,19 @@
         <form id="onboarding-form" onsubmit="return false;">
             <!-- Step 1: Welcome -->
             <div class="onboarding-step-content active" id="step-1">
-                <h2 style="margin-bottom: 12px;">Data-backed Football Parlays</h2>
-                <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                <h2 class="step-title">Data-backed Football Parlays</h2>
+                <p class="step-desc">
                     Welcome to Footy Predict! This is a local-first application designed to build, calibrate, and track high-probability parlays using actual statistics.
                 </p>
-                <p style="color: var(--text-secondary);">
+                <p class="step-desc">
                     Let's take a quick minute to configure your tracking scopes, selected leagues of interest, preferred betting markets, and API key tokens.
                 </p>
             </div>
 
             <!-- Step 2: API Keys -->
             <div class="onboarding-step-content" id="step-2">
-                <h2 style="margin-bottom: 12px;">Configure API Connections</h2>
-                <p class="subtitle" style="margin-bottom: 20px;">API credentials are stored securely in your local database, not hosted online.</p>
+                <h2 class="step-title">Configure API Connections</h2>
+                <p class="step-desc">API credentials are stored securely in your local database, not hosted online.</p>
                 
                 <div class="form-group">
                     <label for="api_football_key">API-Football Key (Primary Source)</label>
@@ -115,7 +202,7 @@
                     <div id="status-api_football" class="test-status"></div>
                 </div>
 
-                <div class="form-group">
+                <div class="form-group" style="margin-top: var(--space-4);">
                     <label for="football_data_org_key">Football-Data.org Token (Secondary Source)</label>
                     <div class="test-btn-container">
                         <input type="password" id="football_data_org_key" class="form-input" placeholder="Enter Football-Data.org Key" value="{{ settings.football_data_org_key }}">
@@ -127,8 +214,8 @@
 
             <!-- Step 3: Choose Leagues -->
             <div class="onboarding-step-content" id="step-3">
-                <h2 style="margin-bottom: 12px;">Select Active Leagues</h2>
-                <p class="subtitle">Checkbox the football leagues you wish to analyze.</p>
+                <h2 class="step-title">Select Active Leagues</h2>
+                <p class="step-desc">Checkbox the football leagues you wish to analyze.</p>
                 
                 <div class="league-grid">
                     {% for lg in leagues %}
@@ -142,12 +229,12 @@
 
             <!-- Step 4: Choose Markets -->
             <div class="onboarding-step-content" id="step-4">
-                <h2 style="margin-bottom: 12px;">Select Betting Markets</h2>
-                <p class="subtitle">Configure preferred betting scopes and target probability floor thresholds.</p>
+                <h2 class="step-title">Select Betting Markets</h2>
+                <p class="step-desc">Configure preferred betting scopes and target probability floor thresholds.</p>
                 
                 <div class="market-list">
                     {% for mk in markets %}
-                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 8px;">
+                    <div class="market-row">
                         <label class="checkbox-label">
                             <input type="checkbox" name="markets" value="{{ mk.market_code }}" {% if mk.enabled %}checked{% endif %}>
                             <span>{{ mk.display_name }}</span>
@@ -168,6 +255,9 @@
             </div>
         </form>
     </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
 
     <script>
         let currentStep = 1;
@@ -209,33 +299,6 @@
 
             prevBtn.style.visibility = currentStep === 1 ? 'hidden' : 'visible';
             nextBtn.innerText = currentStep === totalSteps ? 'Finish Setup' : (currentStep === 1 ? 'Get Started' : 'Next');
-        }
-
-        function testKey(provider) {
-            const key = document.getElementById(provider + '_key').value.trim();
-            const statusDiv = document.getElementById('status-' + provider);
-            statusDiv.innerText = 'Testing connection...';
-            statusDiv.className = 'test-status';
-
-            fetch('/api/v1/settings/test-key', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ provider: provider, key: key })
-            })
-            .then(r => r.json())
-            .then(data => {
-                if (data.valid) {
-                    statusDiv.innerText = '✓ Key valid. Quota: ' + data.quota_remaining + ' calls remaining.';
-                    statusDiv.style.color = 'var(--accent-emerald)';
-                } else {
-                    statusDiv.innerText = '✗ Invalid: ' + (data.error || 'Check credentials');
-                    statusDiv.style.color = 'var(--accent-coral)';
-                }
-            })
-            .catch(e => {
-                statusDiv.innerText = '✗ Test failed: ' + e;
-                statusDiv.style.color = 'var(--accent-coral)';
-            });
         }
 
         function submitOnboarding() {
