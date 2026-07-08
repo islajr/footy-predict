@@ -436,10 +436,7 @@ class ResultRecorder:
     ) -> tuple[str, bool]:
         """
         Team Over/Under: check a specific team's goals against a line.
-
-        The team side ('home'/'away') and numeric line are expected in
-        ``prediction['supporting_stats']`` under keys ``'team_side'``
-        and ``'line'``.
+        Checks supporting_stats for side and line, falling back to parsing the pick string.
         """
         stats = prediction.get("supporting_stats", {})
         if isinstance(stats, str):
@@ -448,13 +445,26 @@ class ResultRecorder:
             except (json.JSONDecodeError, TypeError):
                 stats = {}
 
-        team_side = stats.get("team_side", "home").lower()
-        line = float(stats.get("line", 0.5))
+        pick_lower = pick.lower()
+        
+        # Determine side (home/away)
+        if "team_side" in stats:
+            team_side = stats["team_side"].lower()
+        else:
+            team_side = "home" if "home" in pick_lower else "away"
 
+        # Determine line
+        if "line" in stats:
+            line = float(stats["line"])
+        else:
+            match_obj = re.search(r"(\d+\.?\d*)", pick_lower)
+            line = float(match_obj.group(1)) if match_obj else 0.5
+
+        is_over = "over" in pick_lower
         team_goals = hs if team_side == "home" else as_
-        actual = "Over" if team_goals > line else "Under"
-
-        return (
-            f"{actual} {line} ({team_side} scored {team_goals})",
-            pick.lower().startswith(actual.lower()),
-        )
+        actual_over = team_goals > line
+        
+        is_correct = (is_over and actual_over) or (not is_over and not actual_over)
+        actual_outcome = f"{team_side.capitalize()} {'Over' if actual_over else 'Under'} {line:g} (scored {team_goals})"
+        
+        return actual_outcome, is_correct
