@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 from rich.columns import Columns
 from rich.console import Group
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
@@ -29,6 +30,11 @@ if TYPE_CHECKING:
     from src.analysis.engine import MatchAnalysis
     from src.analysis.factors import FactorResult
     from src.analysis.markets import MarketRecommendation
+
+try:
+    from src.config import FACTOR_WEIGHTS
+except ImportError:
+    FACTOR_WEIGHTS: dict[str, float] = {}
 
 # ═══════════════════════════════════════════════════════════════
 #  Constants
@@ -51,8 +57,34 @@ def _bar(value: float, width: int = 12) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def _bar_directional(score: float, width: int = 14) -> Text:
+    """Rich Text bar with directional display for factor scores (-1..+1).
+
+    Negative scores lean left (Away-favoured, shown in magenta);
+    positive scores lean right (Home-favoured, shown in cyan).
+    A midpoint marker divides the bar.
+    """
+    half = width // 2
+    txt = Text()
+    if score >= 0:
+        filled = int(round(score * half))
+        txt.append("░" * half, style="dim")
+        txt.append("│", style="bold white")
+        txt.append("█" * filled, style="cyan")
+        txt.append("░" * (half - filled), style="dim")
+        txt.append(f"  +{score:.2f}", style="bold cyan")
+    else:
+        filled = int(round(abs(score) * half))
+        txt.append("░" * (half - filled), style="dim")
+        txt.append("█" * filled, style="magenta")
+        txt.append("│", style="bold white")
+        txt.append("░" * half, style="dim")
+        txt.append(f"  {score:.2f}", style="bold magenta")
+    return txt
+
+
 def _bar_colored(value: float, width: int = 12) -> Text:
-    """Rich Text bar coloured green→yellow→red by magnitude."""
+    """Rich Text bar coloured green→yellow→red by magnitude (0–1 scale)."""
     filled = int(round(value * width))
     if value >= 0.7:
         color = "green"
@@ -67,9 +99,20 @@ def _bar_colored(value: float, width: int = 12) -> Text:
     return bar
 
 
-def _confidence_style(confidence: str) -> str:
-    """Return a Rich style string for a confidence level."""
-    return CONFIDENCE_STYLES.get(confidence, CONFIDENCE_STYLES["LOW"])["color"]
+def _confidence_style(confidence: str | float) -> str:
+    """Return a Rich style string for a confidence level.
+
+    Accepts either a string label (``"HIGH"``) or a float (in which case
+    it classifies the float first using the standard thresholds).
+    """
+    if isinstance(confidence, (int, float)):
+        if confidence >= 0.70:
+            confidence = "HIGH"
+        elif confidence >= 0.50:
+            confidence = "MEDIUM"
+        else:
+            confidence = "LOW"
+    return CONFIDENCE_STYLES.get(str(confidence), CONFIDENCE_STYLES["LOW"])["color"]
 
 
 def _confidence_emoji(confidence: str) -> str:
@@ -190,10 +233,14 @@ class ReportFormatter:
 
     def format_match_analysis_cli(self, analysis: MatchAnalysis) -> Panel:
         """
-        Build a Rich Panel with the full deep-dive analysis of a single match.
+        Build a Rich Panel with the full decision-support match card.
 
-        Includes header, factor scores as coloured bars, market recommendations,
-        risk warnings, and supporting statistics.
+        Sections:
+        1. Header — teams, date, league
+        2. Statistical summary strip — form strings, PPG, CS rates, H2H
+        3. Factor score bars — directional display, grouped by category
+        4. Tiered market recommendations — HIGH / MEDIUM / LOW sections
+        5. Risk warnings
         """
         match = _safe_attr(analysis, "match", {})
         home = _safe_attr(match, "home_team_name", "Home")
@@ -211,7 +258,61 @@ class ReportFormatter:
         if league:
             header.append(f"  •  🏆 {league}", style="dim")
 
-        # ── Factor Scores ───────────────────────────────────
+        # ── Statistical Summary Strip ────────────────────────
+        factor_results: list = _safe_attr(analysis, "factor_results", [])
+
+        def _fdata(name: str) -> dict:
+            for fr in factor_results:
+                if _safe_attr(fr, "name") == name:
+                    return _safe_attr(fr, "data_points") or {}
+            return {}
+
+        rf_dp = _fdata("recent_form")
+        hf_dp = _fdata("home_form")
+        af_dp = _fdata("away_form")
+        h2h_dp = _fdata("head_to_head")
+        pos_dp = _fdata("league_position")
+        def_dp = _fdata("defensive_record")
+
+        summary = Text()
+        home_rf = rf_dp.get("home", {})
+        away_rf = rf_dp.get("away", {})
+        home_form_str = home_rf.get("form_string") or pos_dp.get("home_form_string") or "—"
+        away_form_str = away_rf.get("form_string") or pos_dp.get("away_form_string") or "—"
+        home_ppg = home_rf.get("ppg") or pos_dp.get("home_goals_for_per_game")
+        away_ppg = away_rf.get("ppg") or pos_dp.get("away_goals_for_per_game")
+        home_cs = def_dp.get("home_cs_rate_home") or def_dp.get("home_cs_rate")
+        away_cs = def_dp.get("away_cs_rate_away") or def_dp.get("away_cs_rate")
+        h2h_hw = h2h_dp.get("home_wins", "?")
+        h2h_d = h2h_dp.get("draws", "?")
+        h2h_aw = h2h_dp.get("away_wins", "?")
+        h2h_total = h2h_dp.get("total_meetings", "?")
+        home_pos = pos_dp.get("home_position")
+        away_pos = pos_dp.get("away_position")
+
+        summary.append("📋 ", style="bold")
+        summary.append(f"{home}: ", style="bold cyan")
+        summary.append(
+            f"{home_form_str}"
+            + (f" {home_ppg:.2f} PPG" if home_ppg is not None else "")
+            + (f" | CS {home_cs:.0%}" if home_cs is not None else "")
+            + (f" | {home_pos}{'th' if home_pos else ''}" if home_pos else "")
+        )
+        summary.append("  vs  ", style="dim")
+        summary.append(f"{away}: ", style="bold magenta")
+        summary.append(
+            f"{away_form_str}"
+            + (f" {away_ppg:.2f} PPG" if away_ppg is not None else "")
+            + (f" | CS {away_cs:.0%}" if away_cs is not None else "")
+            + (f" | {away_pos}{'th' if away_pos else ''}" if away_pos else "")
+        )
+        if h2h_total not in ("?", None, 0):
+            summary.append(
+                f"\n🆚 H2H: {h2h_hw}W–{h2h_d}D–{h2h_aw}L ({h2h_total} meetings)",
+                style="dim",
+            )
+
+        # ── Factor Scores ────────────────────────────────────
         factor_table = Table(
             title="📊 Factor Analysis",
             show_header=True,
@@ -219,52 +320,80 @@ class ReportFormatter:
             expand=True,
             padding=(0, 1),
         )
-        factor_table.add_column("Factor", style="bold", min_width=20)
-        factor_table.add_column("Score", min_width=20)
-        factor_table.add_column("Weight", justify="right", style="dim")
+        factor_table.add_column("Factor", style="bold", min_width=22)
+        factor_table.add_column("Score  [dim cyan]← Away   Home →[/dim cyan]", min_width=32)
+        factor_table.add_column("Conf", justify="right", style="dim")
+        factor_table.add_column("Wt", justify="right", style="dim")
 
-        factor_results: list = _safe_attr(analysis, "factor_results", [])
         for fr in factor_results:
             name = _safe_attr(fr, "name", "?")
-            score = _safe_attr(fr, "score", 0.0) or 0.0
-            weight = _safe_attr(fr, "weight", 0.0) or 0.0
+            score = _safe_attr(fr, "score", 0.0)
+            if score is None:
+                score = 0.0
+            conf = _safe_attr(fr, "confidence", 0.0)
+            if conf is None:
+                conf = 0.0
+            weight = FACTOR_WEIGHTS.get(name, 0.0)
             factor_table.add_row(
                 name.replace("_", " ").title(),
-                _bar_colored(max(0.0, min(1.0, score))),
-                f"{weight:.1%}",
+                _bar_directional(float(score)),
+                _bar_colored(float(conf), width=6),
+                f"{weight:.0%}",
             )
 
-        # ── Market Recommendations ──────────────────────────
-        recs_table = Table(
-            title="🎯 Market Recommendations",
-            show_header=True,
-            header_style="bold green",
-            expand=True,
-            padding=(0, 1),
-        )
-        recs_table.add_column("Market", style="bold")
-        recs_table.add_column("Pick", style="bold cyan")
-        recs_table.add_column("Probability", justify="right")
-        recs_table.add_column("Confidence", justify="center")
-        recs_table.add_column("Implied Odds", justify="right", style="dim")
-
+        # ── Tiered Market Recommendations ────────────────────
         recommendations: list = _safe_attr(analysis, "recommendations", [])
-        for rec in recommendations:
-            market = _safe_attr(rec, "market", "")
-            pick = _safe_attr(rec, "pick", "")
-            prob = _safe_attr(rec, "probability", 0.0) or 0.0
-            conf = _safe_attr(rec, "confidence", "LOW")
-            odds = _safe_attr(rec, "implied_odds", 0.0) or 0.0
+        sections_content = []
 
-            conf_style = _confidence_style(conf)
-            conf_text = Text(f"{_confidence_emoji(conf)} {conf}", style=conf_style)
+        tier_defs = [
+            ("HIGH",   "bold green",   "🟢 HIGH CONFIDENCE"),
+            ("MEDIUM", "bold yellow",  "🟡 MEDIUM CONFIDENCE"),
+            ("LOW",    "bold red",     "🔴 LOW CONFIDENCE"),
+        ]
 
-            recs_table.add_row(
-                market,
-                pick,
-                f"{prob:.0%}",
-                conf_text,
-                f"{odds:.2f}" if odds else "—",
+        for tier, tier_style, tier_label in tier_defs:
+            tier_recs = [r for r in recommendations if _safe_attr(r, "confidence", "LOW") == tier]
+            if not tier_recs:
+                continue
+
+            mkt_table = Table(
+                show_header=True,
+                header_style=tier_style,
+                expand=True,
+                padding=(0, 1),
+                box=None,
+            )
+            mkt_table.add_column("#",      justify="right", style="dim", width=3)
+            mkt_table.add_column("Market", style="bold",    min_width=16)
+            mkt_table.add_column("Pick",   style="bold cyan", min_width=22)
+            mkt_table.add_column("Prob",   justify="right", min_width=6)
+            mkt_table.add_column("Odds",   justify="right", style="dim", min_width=6)
+            mkt_table.add_column("Rationale (summary)", min_width=40)
+
+            for pick_n, rec in enumerate(tier_recs, 1):
+                market   = _safe_attr(rec, "market", "") or _safe_attr(rec, "market_code", "")
+                pick     = _safe_attr(rec, "pick", "")
+                prob     = float(_safe_attr(rec, "probability", 0.0) or 0.0)
+                odds     = float(_safe_attr(rec, "implied_odds", 0.0) or 0.0)
+                rationale = _safe_attr(rec, "rationale", "") or ""
+                short_rat = rationale[:90] + "…" if len(rationale) > 90 else rationale
+                mkt_table.add_row(
+                    str(pick_n),
+                    market,
+                    pick,
+                    f"{prob:.0%}",
+                    f"{odds:.2f}" if odds else "—",
+                    short_rat,
+                )
+
+            sections_content.append(
+                Panel(
+                    mkt_table,
+                    title=f"[{tier_style}]{tier_label}[/{tier_style}] ({len(tier_recs)} picks)",
+                    border_style=tier_style.split()[-1],  # last word = colour name
+                    expand=True,
+                    padding=(0, 1),
+                )
             )
 
         # ── Risk Factors ────────────────────────────────────
@@ -280,14 +409,30 @@ class ReportFormatter:
             risk_text.append("✅ No significant risk factors identified.\n", style="green")
 
         # ── Assemble panel ──────────────────────────────────
-        content = Group(header, "", factor_table, "", recs_table, "", risk_text)
         overall_conf = _safe_attr(analysis, "overall_confidence", "LOW")
         border_color = _confidence_style(overall_conf)
 
+        content_items = [header, "", summary, "", factor_table, ""]
+        content_items.extend(sections_content)
+        content_items.extend(["", risk_text])
+
+        content = Group(*content_items)
+
+        # Determine confidence label for subtitle
+        if isinstance(overall_conf, float):
+            if overall_conf >= 0.70:
+                conf_label = "HIGH"
+            elif overall_conf >= 0.50:
+                conf_label = "MEDIUM"
+            else:
+                conf_label = "LOW"
+        else:
+            conf_label = str(overall_conf)
+
         return Panel(
             content,
-            title=f"[bold]Match Analysis[/bold]",
-            subtitle=f"[{border_color}]Overall: {_confidence_emoji(overall_conf)} {overall_conf}[/{border_color}]",
+            title="[bold]Match Analysis — Decision Support[/bold]",
+            subtitle=f"[{border_color}]Overall confidence: {_confidence_emoji(conf_label)} {conf_label}[/{border_color}]",
             border_style=border_color,
             expand=True,
             padding=(1, 2),
@@ -348,65 +493,97 @@ class ReportFormatter:
     def format_picks_cli(
         self,
         analyses: list[MatchAnalysis],
-        min_confidence: str = "HIGH",
+        min_confidence: str | None = None,
     ) -> Table:
         """
-        Build a Rich Table showing only picks at or above the requested
-        confidence threshold, suitable for quick parlay review.
+        Build a Rich Table showing all picks, tiered by confidence.
+
+        All three confidence tiers (HIGH / MEDIUM / LOW) are always shown.
+        LOW-confidence picks are displayed last with a visual de-emphasis.
+        Pass ``min_confidence='HIGH'`` or ``'MEDIUM'`` to filter if desired.
+
+        Args:
+            analyses: List of ``MatchAnalysis`` instances.
+            min_confidence: Optional minimum tier to display.  Defaults to
+                showing all tiers.
         """
         confidence_rank = {"HIGH": 3, "MEDIUM": 2, "LOW": 1}
-        min_rank = confidence_rank.get(min_confidence, 1)
+        min_rank = confidence_rank.get(min_confidence or "LOW", 1)
 
         table = Table(
-            title=f"🎯 Picks (≥ {min_confidence})",
+            title="🎯 All Picks",
             show_header=True,
             header_style="bold white on dark_green",
             expand=True,
         )
-        table.add_column("#", justify="right", style="dim", width=3)
-        table.add_column("Match", min_width=28)
+        table.add_column("#",      justify="right", style="dim", width=3)
+        table.add_column("Match",  min_width=28)
         table.add_column("League", style="dim", min_width=12)
         table.add_column("Market", min_width=14)
-        table.add_column("Pick", style="bold cyan")
-        table.add_column("Prob", justify="right")
-        table.add_column("Odds", justify="right", style="dim")
-        table.add_column("Conf", justify="center")
+        table.add_column("Pick",   style="bold cyan")
+        table.add_column("Prob",   justify="right")
+        table.add_column("Odds",   justify="right", style="dim")
+        table.add_column("Conf",   justify="center")
 
+        # Group output by confidence tier so LOW picks appear last
+        tiers_order = ["HIGH", "MEDIUM", "LOW"]
         pick_num = 0
-        for analysis in analyses:
-            match = _safe_attr(analysis, "match", {})
-            home = _safe_attr(match, "home_team_name", "?")
-            away = _safe_attr(match, "away_team_name", "?")
-            league = _safe_attr(match, "league_name", "")
 
-            recs: list = _safe_attr(analysis, "recommendations", [])
-            for rec in recs:
-                conf = _safe_attr(rec, "confidence", "LOW")
-                if confidence_rank.get(conf, 0) < min_rank:
-                    continue
+        for tier in tiers_order:
+            tier_rank = confidence_rank.get(tier, 1)
+            if tier_rank < min_rank:
+                continue
 
+            tier_rows = []
+            for analysis in analyses:
+                match = _safe_attr(analysis, "match", {})
+                home   = _safe_attr(match, "home_team_name", "?")
+                away   = _safe_attr(match, "away_team_name", "?")
+                league = _safe_attr(match, "league_name", "")
+                recs: list = _safe_attr(analysis, "recommendations", [])
+                for rec in recs:
+                    conf = _safe_attr(rec, "confidence", "LOW")
+                    if conf != tier:
+                        continue
+                    tier_rows.append((home, away, league, rec, conf))
+
+            if not tier_rows:
+                continue
+
+            # Separator row for each tier
+            conf_style = _confidence_style(tier)
+            conf_emoji = _confidence_emoji(tier)
+            table.add_row(
+                "", f"[{conf_style}]{conf_emoji} {tier} CONFIDENCE[/{conf_style}]",
+                "", "", "", "", "", "",
+                style="bold",
+            )
+
+            for home, away, league, rec, conf in tier_rows:
                 pick_num += 1
-                prob = _safe_attr(rec, "probability", 0.0) or 0.0
-                odds = _safe_attr(rec, "implied_odds", 0.0) or 0.0
+                prob     = float(_safe_attr(rec, "probability", 0.0) or 0.0)
+                odds     = float(_safe_attr(rec, "implied_odds", 0.0) or 0.0)
                 conf_style = _confidence_style(conf)
+                row_style  = "dim" if conf == "LOW" else ""
 
                 table.add_row(
                     str(pick_num),
                     f"{home} vs {away}",
                     league,
-                    _safe_attr(rec, "market", ""),
+                    _safe_attr(rec, "market", "") or _safe_attr(rec, "market_code", ""),
                     _safe_attr(rec, "pick", ""),
                     f"{prob:.0%}",
                     f"{odds:.2f}" if odds else "—",
                     Text(f"{_confidence_emoji(conf)} {conf}", style=conf_style),
+                    style=row_style,
                 )
 
         if pick_num == 0:
             table.add_row(
-                "—", f"No picks meet the {min_confidence} threshold", "", "", "", "", "", ""
+                "—", "No picks found", "", "", "", "", "", ""
             )
 
-        table.caption = f"[dim]{pick_num} pick{'s' if pick_num != 1 else ''} found[/dim]"
+        table.caption = f"[dim]{pick_num} pick{'s' if pick_num != 1 else ''} across all confidence tiers[/dim]"
         return table
 
     def format_accuracy_cli(self, stats: dict) -> Panel:
