@@ -1804,6 +1804,11 @@ def attacking_matchup(
             "home_attack_vs_away_def": round(home_attack_vs_away_def, 3),
             "away_attack_vs_home_def": round(away_attack_vs_home_def, 3),
             "matchup_diff": round(matchup_diff, 3),
+            # Documented interface for handicap model and CODEBASE.md
+            "expected_goal_diff": round(matchup_diff, 3),
+            "expected_home_goals": round(home_gpg, 2),
+            "expected_away_goals": round(away_gpg, 2),
+            "expected_total": round(home_gpg + away_gpg, 2),
         },
     )
 

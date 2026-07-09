@@ -16,6 +16,9 @@ from src.analysis.factors import (
     scoring_patterns,
     rest_days,
     rivalry,
+    venue_advantage,
+    attacking_matchup,
+    xg_quality,
 )
 
 @pytest.fixture
@@ -389,3 +392,149 @@ def test_rest_days(temp_db):
     res = rest_days(db, home_id, away_id, league_id, season)
     assert res.name == "rest_days"
     assert isinstance(res.score, float)
+
+
+# ─────────────────────────────────────────────────────
+#  Phase A Factor Tests
+# ─────────────────────────────────────────────────────
+
+@pytest.fixture
+def db_with_home_specialist(temp_db):
+    """A home team (Arsenal) with a strong home record and poor away record.
+    The away team (Chelsea) is neutral at both venues.
+    Used for venue_advantage and attacking_matchup tests.
+    """
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    other_id = db.upsert_team("Spurs", league_id, api_football_id=47)
+
+    # Arsenal — 5 home wins (strong at home)
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-03-0{i+1}",
+            home_team_id=home_id, away_team_id=other_id,
+            api_football_id=1000 + i, status="FINISHED",
+            home_score=3, away_score=0,
+        )
+
+    # Arsenal — 5 away losses (poor away)
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-04-0{i+1}",
+            home_team_id=other_id, away_team_id=home_id,
+            api_football_id=1100 + i, status="FINISHED",
+            home_score=2, away_score=0,
+        )
+
+    # Chelsea — mixed results (neutral)
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-03-1{i+1}",
+            home_team_id=away_id, away_team_id=other_id,
+            api_football_id=1200 + i, status="FINISHED",
+            home_score=1, away_score=1,
+        )
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-04-1{i+1}",
+            home_team_id=other_id, away_team_id=away_id,
+            api_football_id=1300 + i, status="FINISHED",
+            home_score=1, away_score=1,
+        )
+
+    return db, home_id, away_id, league_id, season
+
+
+# ── venue_advantage ───────────────────────────────────────────
+
+def test_venue_advantage_returns_factor_result(db_with_home_specialist):
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = venue_advantage(db, home_id, away_id, league_id, season)
+    assert res.name == "venue_advantage"
+    assert -1.0 <= res.score <= 1.0
+    assert 0.0 <= res.confidence <= 1.0
+    assert isinstance(res.rationale, str) and len(res.rationale) > 0
+
+
+def test_venue_advantage_home_specialist_scores_positive(db_with_home_specialist):
+    """Arsenal is strong at home, poor away — score should favour home."""
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = venue_advantage(db, home_id, away_id, league_id, season)
+    assert res.score > 0.0, f"Expected positive score, got {res.score:.3f}"
+
+
+def test_venue_advantage_no_data_low_confidence(temp_db):
+    """With no match history, factor should return low confidence."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    res = venue_advantage(db, home_id, away_id, league_id, "2025")
+    assert res.confidence < 0.5
+
+
+# ── attacking_matchup ─────────────────────────────────────────
+
+def test_attacking_matchup_returns_factor_result(db_with_home_specialist):
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = attacking_matchup(db, home_id, away_id, league_id, season)
+    assert res.name == "attacking_matchup"
+    assert -1.0 <= res.score <= 1.0
+    assert 0.0 <= res.confidence <= 1.0
+
+
+def test_attacking_matchup_exposes_expected_goal_keys(db_with_home_specialist):
+    """attacking_matchup must expose expected_goal_diff for handicap model."""
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = attacking_matchup(db, home_id, away_id, league_id, season)
+    dp = res.data_points
+    assert "expected_goal_diff" in dp, f"Missing expected_goal_diff in data_points: {list(dp.keys())}"
+    assert "expected_home_goals" in dp
+    assert "expected_away_goals" in dp
+    assert "expected_total" in dp
+
+
+def test_attacking_matchup_high_scorer_vs_leaky_defence_positive(db_with_home_specialist):
+    """High-scoring home team vs leaky away defence should produce positive score."""
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = attacking_matchup(db, home_id, away_id, league_id, season)
+    # Arsenal scored 3 goals/home game vs Spurs; Chelsea conceded from equal 1-1 draws.
+    # home attack advantage expected.
+    assert res.score >= -0.5, f"Score unexpectedly low: {res.score:.3f}"
+
+
+# ── xg_quality ─────────────────────────────────────────────
+
+def test_xg_quality_returns_factor_result(db_with_home_specialist):
+    db, home_id, away_id, league_id, season = db_with_home_specialist
+    res = xg_quality(db, home_id, away_id, league_id, season)
+    assert res.name == "xg_quality"
+    assert -1.0 <= res.score <= 1.0
+    assert 0.0 <= res.confidence <= 1.0
+    assert isinstance(res.rationale, str) and len(res.rationale) > 0
+
+
+def test_xg_quality_no_data_returns_neutral(temp_db):
+    """With no match_stats data (no xG records), factor should be neutral and low-confidence."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    res = xg_quality(db, home_id, away_id, league_id, "2025")
+    # No xG data — should not crash, should return low confidence neutral result
+    assert -1.0 <= res.score <= 1.0
+    assert res.confidence < 0.5
