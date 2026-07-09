@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS predictions (
     supporting_stats TEXT   DEFAULT '{}',   -- JSON dict of key stats
     factor_scores   TEXT    DEFAULT '{}',   -- JSON dict: factor name → score
     created_at      TEXT    DEFAULT (datetime('now')),
-    UNIQUE(match_id, market)
+    UNIQUE(match_id, market, pick)   -- Broadened: one row per (match, market, pick direction)
 );
 
 -- Actual outcomes for accuracy tracking
@@ -932,20 +932,39 @@ class Database:
         supporting_stats: dict | None = None,
         factor_scores: dict | None = None,
     ) -> int:
-        """Record a prediction. Returns the prediction ID."""
+        """Record a prediction for a (match, market, pick) combination.
+
+        The unique constraint is now UNIQUE(match_id, market, pick), which
+        allows multiple picks per market per match (e.g. all three 1X2
+        directions, or both Over and Under for each O/U line).
+
+        Args:
+            match_id: Database ID of the match.
+            market: Market code, e.g. ``"over-under-2.5"``.
+            pick: The specific pick direction, e.g. ``"Over 2.5"``.
+            probability: Estimated probability in [0, 1].
+            confidence: Classification string — ``"HIGH"``, ``"MEDIUM"``, or ``"LOW"``.
+            rationale: Human-readable explanation of the recommendation.
+            implied_odds: Decimal odds implied by probability (auto-computed if omitted).
+            risk_factors: Optional list of risk flag strings.
+            supporting_stats: Optional dict of key supporting statistics.
+            factor_scores: Optional dict mapping factor names to their scores.
+
+        Returns:
+            The database ``id`` of the inserted or updated prediction row.
+        """
         if implied_odds is None and probability > 0:
             implied_odds = round(1.0 / probability, 2)
 
         with self._connect() as conn:
-            cursor = conn.execute(
+            conn.execute(
                 """
                 INSERT INTO predictions
                     (match_id, market, pick, probability, confidence,
                      implied_odds, rationale, risk_factors,
                      supporting_stats, factor_scores)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(match_id, market) DO UPDATE SET
-                    pick=excluded.pick,
+                ON CONFLICT(match_id, market, pick) DO UPDATE SET
                     probability=excluded.probability,
                     confidence=excluded.confidence,
                     implied_odds=excluded.implied_odds,
@@ -955,18 +974,60 @@ class Database:
                     factor_scores=excluded.factor_scores,
                     created_at=datetime('now')
                 """,
-                (match_id, market, pick, probability, confidence,
-                 implied_odds,
-                 rationale,
-                 json.dumps(risk_factors or []),
-                 json.dumps(supporting_stats or {}),
-                 json.dumps(factor_scores or {})),
+                (
+                    match_id, market, pick, probability, confidence,
+                    implied_odds,
+                    rationale,
+                    json.dumps(risk_factors or []),
+                    json.dumps(supporting_stats or {}),
+                    json.dumps(factor_scores or {}),
+                ),
             )
             row = conn.execute(
-                "SELECT id FROM predictions WHERE match_id=? AND market=?",
-                (match_id, market),
+                "SELECT id FROM predictions WHERE match_id=? AND market=? AND pick=?",
+                (match_id, market, pick),
             ).fetchone()
             return row["id"]
+
+    def get_team_xg_history(
+        self, team_id: int, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return recent match xG statistics for a team from match_stats.
+
+        Joins the ``matches`` table with ``match_stats`` to retrieve expected
+        goals (xG) for each match where data is available.  Results are
+        ordered most-recent first.
+
+        Args:
+            team_id: Database ID of the team.
+            limit: Maximum number of matches to return.
+
+        Returns:
+            List of dicts with keys: ``id``, ``date``, ``home_team_id``,
+            ``away_team_id``, ``home_score``, ``away_score``,
+            ``expected_goals``.
+        """
+        sql = """
+            SELECT m.id,
+                   m.date,
+                   m.home_team_id,
+                   m.away_team_id,
+                   m.home_score,
+                   m.away_score,
+                   ms.expected_goals
+              FROM matches m
+              JOIN match_stats ms
+                ON ms.match_id = m.id
+               AND ms.team_id = ?
+             WHERE m.status = 'FINISHED'
+               AND ms.expected_goals IS NOT NULL
+             ORDER BY m.date DESC
+             LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(sql, (team_id, limit)).fetchall()
+            return [dict(r) for r in rows]
+
 
     def get_predictions_for_match(
         self, match_id: int
