@@ -294,6 +294,22 @@ def home_form(
     cpg = _safe_divide(goals_conceded, n)
     cs_rate = _safe_divide(clean_sheets, n)
 
+    # Scoring participation
+    scored_in_count = sum(1 for m in matches if _goals_for(m, home_id) > 0)
+    scored_in_pct = _safe_divide(scored_in_count, n)
+    failed_to_score_count = n - scored_in_count
+
+    # Current streak (most recent first from DB)
+    result_chars = [_match_result_char(m, home_id) for m in matches]
+    streak_type = result_chars[0] if result_chars else None
+    streak_len = 0
+    for r in result_chars:
+        if r == streak_type:
+            streak_len += 1
+        else:
+            break
+    current_home_streak = {"type": streak_type, "length": streak_len} if streak_type else {}
+
     # Score: strong home record → positive
     score = (win_rate - 0.45) * 2.2  # Slight home bias expected (~45% baseline)
     score = max(-1.0, min(1.0, score))
@@ -314,6 +330,9 @@ def home_form(
             "goals_conceded": goals_conceded, "clean_sheets": clean_sheets,
             "win_rate": round(win_rate, 3), "gpg": round(gpg, 2),
             "cpg": round(cpg, 2), "cs_rate": round(cs_rate, 3),
+            "scored_in_pct": round(scored_in_pct, 3),
+            "failed_to_score": failed_to_score_count,
+            "current_home_streak": current_home_streak,
         },
     )
 
@@ -376,6 +395,22 @@ def away_form(
     cpg = _safe_divide(goals_conceded, n)
     cs_rate = _safe_divide(clean_sheets, n)
 
+    # Scoring participation
+    scored_in_count = sum(1 for m in matches if _goals_for(m, away_id) > 0)
+    scored_in_pct = _safe_divide(scored_in_count, n)
+    failed_to_score_count = n - scored_in_count
+
+    # Current streak (most recent first from DB)
+    result_chars = [_match_result_char(m, away_id) for m in matches]
+    streak_type = result_chars[0] if result_chars else None
+    streak_len = 0
+    for r in result_chars:
+        if r == streak_type:
+            streak_len += 1
+        else:
+            break
+    current_away_streak = {"type": streak_type, "length": streak_len} if streak_type else {}
+
     # Strong away team → negative score (favours away)
     score = -((win_rate - 0.35) * 2.0)  # 35% away win rate is neutral baseline
     score = max(-1.0, min(1.0, score))
@@ -396,6 +431,9 @@ def away_form(
             "goals_conceded": goals_conceded, "clean_sheets": clean_sheets,
             "win_rate": round(win_rate, 3), "gpg": round(gpg, 2),
             "cpg": round(cpg, 2), "cs_rate": round(cs_rate, 3),
+            "scored_in_pct": round(scored_in_pct, 3),
+            "failed_to_score": failed_to_score_count,
+            "current_away_streak": current_away_streak,
         },
     )
 
@@ -411,9 +449,17 @@ def scoring_frequency(
     league_id: int,
     season: str,
 ) -> FactorResult:
-    """Compare goals-per-game and scoring consistency for both teams."""
+    """Compare goals-per-game and scoring consistency for both teams.
+
+    Also computes venue-split GPG (home team at home, away team when away)
+    and scored_in_pct for Win to Nil and GG/NG market models.
+    """
     home_matches = db.get_recent_matches(home_id, limit=10)
     away_matches = db.get_recent_matches(away_id, limit=10)
+
+    # Venue-specific match sets
+    home_home_matches = db.get_recent_matches(home_id, limit=10, home_only=True)
+    away_away_matches = db.get_recent_matches(away_id, limit=10, away_only=True)
 
     if not home_matches and not away_matches:
         return _empty_result("scoring_frequency")
@@ -439,6 +485,28 @@ def scoring_frequency(
 
     h_stats = _scoring_stats(home_matches, home_id) if home_matches else None
     a_stats = _scoring_stats(away_matches, away_id) if away_matches else None
+
+    # Venue-split scoring rates
+    def _venue_gpg(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        goals = [_goals_for(m, team_id) for m in matches]
+        return _safe_divide(sum(goals), len(goals))
+
+    home_home_gpg = _venue_gpg(home_home_matches, home_id)
+    away_away_gpg = _venue_gpg(away_away_matches, away_id)
+
+    def _scored_in_pct(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        n = len(matches)
+        return _safe_divide(sum(1 for m in matches if _goals_for(m, team_id) > 0), n)
+
+    home_scored_in_pct = _scored_in_pct(home_home_matches, home_id)
+    away_scored_in_pct = _scored_in_pct(away_away_matches, away_id)
+
+    home_blank_games = sum(1 for m in home_home_matches if _goals_for(m, home_id) == 0) if home_home_matches else None
+    away_blank_games = sum(1 for m in away_away_matches if _goals_for(m, away_id) == 0) if away_away_matches else None
 
     if h_stats and a_stats:
         # Higher scoring home team → positive score
@@ -475,7 +543,18 @@ def scoring_frequency(
         score=score,
         confidence=conf,
         rationale=". ".join(parts) + ".",
-        data_points={"home": h_stats or {}, "away": a_stats or {}},
+        data_points={
+            "home": h_stats or {},
+            "away": a_stats or {},
+            "home_gpg": round(h_stats["avg_goals"], 2) if h_stats else None,
+            "away_gpg": round(a_stats["avg_goals"], 2) if a_stats else None,
+            "home_home_gpg": round(home_home_gpg, 2) if home_home_gpg is not None else None,
+            "away_away_gpg": round(away_away_gpg, 2) if away_away_gpg is not None else None,
+            "home_scored_in_pct": round(home_scored_in_pct, 3) if home_scored_in_pct is not None else None,
+            "away_scored_in_pct": round(away_scored_in_pct, 3) if away_scored_in_pct is not None else None,
+            "home_blank_games": home_blank_games,
+            "away_blank_games": away_blank_games,
+        },
     )
 
 
@@ -490,9 +569,17 @@ def defensive_record(
     league_id: int,
     season: str,
 ) -> FactorResult:
-    """Compare goals conceded per game and clean-sheet rates."""
+    """Compare goals conceded per game and clean-sheet rates.
+
+    Also computes venue-split CS rates (home team at home, away team when away)
+    which are used by GG/NG and Win to Nil market models.
+    """
     home_matches = db.get_recent_matches(home_id, limit=10)
     away_matches = db.get_recent_matches(away_id, limit=10)
+
+    # Venue-specific match sets
+    home_home_matches = db.get_recent_matches(home_id, limit=10, home_only=True)
+    away_away_matches = db.get_recent_matches(away_id, limit=10, away_only=True)
 
     if not home_matches and not away_matches:
         return _empty_result("defensive_record")
@@ -517,6 +604,24 @@ def defensive_record(
 
     h_stats = _def_stats(home_matches, home_id) if home_matches else None
     a_stats = _def_stats(away_matches, away_id) if away_matches else None
+
+    # Venue-split CS rates and CPG
+    def _venue_cs_rate(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        conceded = [_goals_against(m, team_id) for m in matches]
+        return _safe_divide(sum(1 for c in conceded if c == 0), len(conceded))
+
+    def _venue_cpg(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        conceded = [_goals_against(m, team_id) for m in matches]
+        return _safe_divide(sum(conceded), len(conceded))
+
+    home_cs_rate_home = _venue_cs_rate(home_home_matches, home_id)
+    away_cs_rate_away = _venue_cs_rate(away_away_matches, away_id)
+    home_cpg_home = _venue_cpg(home_home_matches, home_id)
+    away_cpg_away = _venue_cpg(away_away_matches, away_id)
 
     if h_stats and a_stats:
         # Better home defence → positive (lower conceded = better)
@@ -553,7 +658,18 @@ def defensive_record(
         score=score,
         confidence=conf,
         rationale=". ".join(parts) + ".",
-        data_points={"home": h_stats or {}, "away": a_stats or {}},
+        data_points={
+            "home": h_stats or {},
+            "away": a_stats or {},
+            "home_cs_rate": round(h_stats["clean_sheet_rate"], 3) if h_stats else None,
+            "away_cs_rate": round(a_stats["clean_sheet_rate"], 3) if a_stats else None,
+            "home_cpg": round(h_stats["avg_conceded"], 2) if h_stats else None,
+            "away_cpg": round(a_stats["avg_conceded"], 2) if a_stats else None,
+            "home_cs_rate_home": round(home_cs_rate_home, 3) if home_cs_rate_home is not None else None,
+            "away_cs_rate_away": round(away_cs_rate_away, 3) if away_cs_rate_away is not None else None,
+            "home_cpg_home": round(home_cpg_home, 2) if home_cpg_home is not None else None,
+            "away_cpg_away": round(away_cpg_away, 2) if away_cpg_away is not None else None,
+        },
     )
 
 
@@ -617,9 +733,52 @@ def head_to_head(
         except (json.JSONDecodeError, TypeError):
             last_matches = []
 
+    last_5_scorelines: list[str] = []
+    btts_count = 0
+    recent_h2h_trend = ""
+    avg_goals_h2h: float | None = None
+
     if last_matches:
         recent_count = min(5, len(last_matches))
         rationale += f" Last {recent_count} meetings available for context."
+
+        # Extract scorelines and BTTS from last_matches
+        for m in last_matches[:5]:
+            hs = m.get("home_score", "?")
+            as_ = m.get("away_score", "?")
+            last_5_scorelines.append(f"{hs}-{as_}")
+            if isinstance(hs, int) and isinstance(as_, int) and hs > 0 and as_ > 0:
+                btts_count += 1
+
+        # Average goals per H2H meeting
+        total_h2h_goals = home_goals + away_goals
+        avg_goals_h2h = round(_safe_divide(total_h2h_goals, total), 2) if total > 0 else None
+
+        # Recent H2H trend for home team in last 5 meetings
+        trend_chars = []
+        for m in last_matches[:5]:
+            hs = m.get("home_score")
+            as_ = m.get("away_score")
+            h_team = m.get("home_team_id")
+            if hs is None or as_ is None:
+                continue
+            if h_team == home_id:
+                if hs > as_:
+                    trend_chars.append("W")
+                elif hs == as_:
+                    trend_chars.append("D")
+                else:
+                    trend_chars.append("L")
+            else:
+                if as_ > hs:
+                    trend_chars.append("W")
+                elif hs == as_:
+                    trend_chars.append("D")
+                else:
+                    trend_chars.append("L")
+        recent_h2h_trend = "".join(trend_chars)
+
+    btts_rate_h2h = round(_safe_divide(btts_count, min(5, len(last_matches) if last_matches else 0)), 3) if last_matches else None
 
     return FactorResult(
         name="head_to_head",
@@ -635,6 +794,10 @@ def head_to_head(
             "away_goals": away_goals,
             "home_win_rate": round(home_wr, 3),
             "away_win_rate": round(away_wr, 3),
+            "last_5_scorelines": last_5_scorelines,
+            "avg_goals_h2h": avg_goals_h2h,
+            "btts_rate_h2h": btts_rate_h2h,
+            "recent_h2h_trend": recent_h2h_trend,
         },
     )
 
@@ -757,6 +920,20 @@ def league_position(
             f"Position gap: {abs(h_pos - a_pos)} places, points gap: {abs(h_pts - a_pts)}."
         )
 
+        # Additional standings stats (goals, win%, form string)
+        h_played = max(home_standing.get("played", 0) or 1, 1)
+        a_played = max(away_standing.get("played", 0) or 1, 1)
+        h_won = home_standing.get("won", 0) or 0
+        h_drawn = home_standing.get("drawn", 0) or 0
+        h_goals_for = home_standing.get("goals_for", 0) or 0
+        h_goals_against = home_standing.get("goals_against", 0) or 0
+        h_form_str = home_standing.get("form", "") or ""
+        a_won = away_standing.get("won", 0) or 0
+        a_drawn = away_standing.get("drawn", 0) or 0
+        a_goals_for = away_standing.get("goals_for", 0) or 0
+        a_goals_against = away_standing.get("goals_against", 0) or 0
+        a_form_str = away_standing.get("form", "") or ""
+
         data_points = {
             "home_position": h_pos,
             "away_position": a_pos,
@@ -767,6 +944,16 @@ def league_position(
             "position_gap": abs(h_pos - a_pos),
             "points_gap": abs(h_pts - a_pts),
             "total_teams": total_teams,
+            "home_goals_for_per_game": round(_safe_divide(h_goals_for, h_played), 2),
+            "home_goals_against_per_game": round(_safe_divide(h_goals_against, h_played), 2),
+            "home_win_pct": round(_safe_divide(h_won, h_played), 3),
+            "home_draw_pct": round(_safe_divide(h_drawn, h_played), 3),
+            "home_form_string": h_form_str,
+            "away_goals_for_per_game": round(_safe_divide(a_goals_for, a_played), 2),
+            "away_goals_against_per_game": round(_safe_divide(a_goals_against, a_played), 2),
+            "away_win_pct": round(_safe_divide(a_won, a_played), 3),
+            "away_draw_pct": round(_safe_divide(a_drawn, a_played), 3),
+            "away_form_string": a_form_str,
         }
     elif home_standing:
         h_pos = home_standing["position"]
@@ -849,6 +1036,25 @@ def goal_timing(
         fh_pct = _safe_divide(first_half_goals, total_goals)
         sh_pct = _safe_divide(second_half_goals, total_goals)
 
+        # HT win/draw/loss rates
+        ht_wins = 0
+        ht_draws = 0
+        ht_losses = 0
+        for m in ht_data:
+            is_home = m["home_team_id"] == team_id
+            if is_home:
+                t_ht = m["ht_home_score"]
+                o_ht = m["ht_away_score"]
+            else:
+                t_ht = m["ht_away_score"]
+                o_ht = m["ht_home_score"]
+            if t_ht > o_ht:
+                ht_wins += 1
+            elif t_ht == o_ht:
+                ht_draws += 1
+            else:
+                ht_losses += 1
+
         return {
             "first_half_goals": first_half_goals,
             "second_half_goals": second_half_goals,
@@ -856,6 +1062,9 @@ def goal_timing(
             "first_half_pct": round(fh_pct, 3),
             "second_half_pct": round(sh_pct, 3),
             "matches_with_ht_data": n,
+            "ht_win_rate": round(_safe_divide(ht_wins, n), 3),
+            "ht_draw_rate": round(_safe_divide(ht_draws, n), 3),
+            "ht_loss_rate": round(_safe_divide(ht_losses, n), 3),
         }
 
     h_timing = _timing_stats(home_matches, home_id) if home_matches else None
@@ -897,7 +1106,12 @@ def goal_timing(
         score=max(-1.0, min(1.0, score)),
         confidence=conf,
         rationale=". ".join(parts) + ".",
-        data_points={"home": h_timing or {}, "away": a_timing or {}},
+        data_points={
+            "home": h_timing or {},
+            "away": a_timing or {},
+            "home_1h_win_rate": h_timing.get("ht_win_rate") if h_timing else None,
+            "away_1h_win_rate": a_timing.get("ht_win_rate") if a_timing else None,
+        },
     )
 
 
@@ -1080,6 +1294,34 @@ def scoring_patterns(
         data["expected_total_goals"] = round(exp_total, 2)
         parts.append(f"Expected total goals: {exp_total:.1f}")
 
+        # Add over_1_5 and over_3_5 averages from season stats if available
+        if o25_avg is not None:
+            data["under_2_5_avg_pct"] = round(100.0 - o25_avg, 1)
+
+        # Poisson probabilities
+        lam_home = data["expected_home_goals"]
+        lam_away = data["expected_away_goals"]
+        lam_total = lam_home + lam_away
+
+        def _poisson_cdf(lam: float, k: int) -> float:
+            """Cumulative Poisson probability P(X <= k)."""
+            return sum(
+                math.exp(-lam) * (lam ** i) / math.factorial(i)
+                for i in range(k + 1)
+            )
+
+        data["home_over_0_5_prob"] = round(1.0 - math.exp(-lam_home), 4)
+        data["home_over_1_5_prob"] = round(1.0 - _poisson_cdf(lam_home, 1), 4)
+        data["away_over_0_5_prob"] = round(1.0 - math.exp(-lam_away), 4)
+        data["away_over_1_5_prob"] = round(1.0 - _poisson_cdf(lam_away, 1), 4)
+        data["over_0_5_prob"] = round(1.0 - math.exp(-lam_total), 4)
+        data["over_1_5_prob"] = round(1.0 - _poisson_cdf(lam_total, 1), 4)
+        data["over_2_5_prob"] = round(1.0 - _poisson_cdf(lam_total, 2), 4)
+        data["over_3_5_prob"] = round(1.0 - _poisson_cdf(lam_total, 3), 4)
+        data["btts_prob"] = round(
+            (1.0 - math.exp(-lam_home)) * (1.0 - math.exp(-lam_away)), 4
+        )
+
     # Failed to score
     h_fts = h_stats.get("failed_to_score") if h_stats else None
     a_fts = a_stats.get("failed_to_score") if a_stats else None
@@ -1250,6 +1492,14 @@ def rest_days(
 
     conf = 0.5 if (h_rest is not None and a_rest is not None) else 0.2
 
+    # Store min_rest so _assess_risks can detect fixture congestion
+    if h_rest is not None and a_rest is not None:
+        data["min_rest"] = min(h_rest, a_rest)
+    elif h_rest is not None:
+        data["min_rest"] = h_rest
+    elif a_rest is not None:
+        data["min_rest"] = a_rest
+
     if flags:
         parts.append("⚠ " + "; ".join(flags))
 
@@ -1381,6 +1631,287 @@ def rivalry(
     )
 
 
+
+# ═══════════════════════════════════════════════════════════════
+#  Factor 13 — Venue Advantage
+# ═══════════════════════════════════════════════════════════════
+
+def venue_advantage(
+    db: Database,
+    home_id: int,
+    away_id: int,
+    league_id: int,
+    season: str,
+) -> FactorResult:
+    """Quantify the home team's venue advantage based on home vs away record split.
+
+    Compares the home team's home win rate vs their away win rate, and the
+    away team's away win rate vs their home win rate.  A strong home performer
+    playing at home against a poor away traveller = high positive score.
+    """
+    home_home = db.get_recent_matches(home_id, limit=12, home_only=True)
+    home_away = db.get_recent_matches(home_id, limit=12, away_only=True)
+    away_home = db.get_recent_matches(away_id, limit=12, home_only=True)
+    away_away = db.get_recent_matches(away_id, limit=12, away_only=True)
+
+    if not home_home and not away_away:
+        return _empty_result("venue_advantage", "Insufficient venue split data")
+
+    def _wr(matches: list[dict], team_id: int) -> float | None:
+        """Win rate for the team in a filtered set of matches."""
+        if not matches:
+            return None
+        wins = sum(1 for m in matches if _match_result_char(m, team_id) == "W")
+        return _safe_divide(wins, len(matches))
+
+    def _gpg(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        goals = [_goals_for(m, team_id) for m in matches]
+        return _safe_divide(sum(goals), len(goals))
+
+    def _cpg(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        conceded = [_goals_against(m, team_id) for m in matches]
+        return _safe_divide(sum(conceded), len(conceded))
+
+    def _cs_rate(matches: list[dict], team_id: int) -> float | None:
+        if not matches:
+            return None
+        cs = sum(1 for m in matches if _goals_against(m, team_id) == 0)
+        return _safe_divide(cs, len(matches))
+
+    hh_wr = _wr(home_home, home_id)
+    ha_wr = _wr(home_away, home_id)
+    ah_wr = _wr(away_home, away_id)
+    aa_wr = _wr(away_away, away_id)
+
+    home_venue_boost = (hh_wr - ha_wr) if (hh_wr is not None and ha_wr is not None) else None
+    away_venue_drag = (aa_wr - ah_wr) if (aa_wr is not None and ah_wr is not None) else None
+
+    # Score: positive = home venue advantage is real and away team travels poorly
+    score = 0.0
+    parts: list[str] = []
+
+    if home_venue_boost is not None:
+        score += home_venue_boost * 0.6
+        parts.append(
+            f"Home team home WR {hh_wr:.0%} vs away WR {ha_wr:.0%} "
+            f"(venue boost: {home_venue_boost:+.0%})"
+        )
+
+    if away_venue_drag is not None:
+        score += away_venue_drag * 0.4  # negative drag = they travel poorly
+        parts.append(
+            f"Away team away WR {aa_wr:.0%} vs home WR {ah_wr:.0%} "
+            f"(travel effect: {away_venue_drag:+.0%})"
+        )
+
+    score = max(-1.0, min(1.0, score))
+
+    n_total = len(home_home) + len(away_away)
+    conf = _confidence_from_matches(n_total, ideal=16) * 0.85
+
+    return FactorResult(
+        name="venue_advantage",
+        score=score,
+        confidence=conf,
+        rationale=". ".join(parts) + "." if parts else "Venue split data computed.",
+        data_points={
+            "home_home_wr": round(hh_wr, 3) if hh_wr is not None else None,
+            "home_away_wr": round(ha_wr, 3) if ha_wr is not None else None,
+            "away_home_wr": round(ah_wr, 3) if ah_wr is not None else None,
+            "away_away_wr": round(aa_wr, 3) if aa_wr is not None else None,
+            "home_venue_boost": round(home_venue_boost, 3) if home_venue_boost is not None else None,
+            "away_travel_drag": round(away_venue_drag, 3) if away_venue_drag is not None else None,
+            "home_home_gpg": round(_gpg(home_home, home_id), 2) if _gpg(home_home, home_id) is not None else None,
+            "away_away_gpg": round(_gpg(away_away, away_id), 2) if _gpg(away_away, away_id) is not None else None,
+            "home_home_cpg": round(_cpg(home_home, home_id), 2) if _cpg(home_home, home_id) is not None else None,
+            "away_away_cpg": round(_cpg(away_away, away_id), 2) if _cpg(away_away, away_id) is not None else None,
+            "home_home_cs_rate": round(_cs_rate(home_home, home_id), 3) if _cs_rate(home_home, home_id) is not None else None,
+            "away_away_cs_rate": round(_cs_rate(away_away, away_id), 3) if _cs_rate(away_away, away_id) is not None else None,
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Factor 14 — Attacking Matchup
+# ═══════════════════════════════════════════════════════════════
+
+def attacking_matchup(
+    db: Database,
+    home_id: int,
+    away_id: int,
+    league_id: int,
+    season: str,
+) -> FactorResult:
+    """Cross-compare each team's attack vs the opponent's defence.
+
+    Uses goals-per-game as attack proxy and goals-conceded-per-game as
+    defence proxy, then measures the mismatch in both directions.
+    A home team with a much stronger attack vs a weak away defence → positive.
+    """
+    home_matches = db.get_recent_matches(home_id, limit=10)
+    away_matches = db.get_recent_matches(away_id, limit=10)
+
+    if not home_matches or not away_matches:
+        return _empty_result("attacking_matchup", "Insufficient match data for both teams")
+
+    # Home team: GPG scored, CPG conceded
+    home_goals_scored = [_goals_for(m, home_id) for m in home_matches]
+    home_goals_conceded = [_goals_against(m, home_id) for m in home_matches]
+    home_gpg = _safe_divide(sum(home_goals_scored), len(home_goals_scored))
+    home_cpg = _safe_divide(sum(home_goals_conceded), len(home_goals_conceded))
+
+    # Away team: GPG scored, CPG conceded
+    away_goals_scored = [_goals_for(m, away_id) for m in away_matches]
+    away_goals_conceded = [_goals_against(m, away_id) for m in away_matches]
+    away_gpg = _safe_divide(sum(away_goals_scored), len(away_goals_scored))
+    away_cpg = _safe_divide(sum(away_goals_conceded), len(away_goals_conceded))
+
+    # Attack vs Defence matchup scores
+    # How does home's attack look vs away's defence?
+    home_attack_vs_away_def = home_gpg - away_cpg  # Positive = home attack > away concedes
+    # How does away's attack look vs home's defence?
+    away_attack_vs_home_def = away_gpg - home_cpg  # Positive = away attack > home concedes
+
+    # Net: positive = home is net better in the matchup
+    matchup_diff = home_attack_vs_away_def - away_attack_vs_home_def
+    score = matchup_diff / 3.0  # Normalise (~3 goal range is extreme)
+    score = max(-1.0, min(1.0, score))
+
+    n_total = len(home_matches) + len(away_matches)
+    conf = _confidence_from_matches(n_total, ideal=16) * 0.75
+
+    rationale = (
+        f"Home attack ({home_gpg:.1f} GPG) vs Away defence ({away_cpg:.1f} CPG): "
+        f"matchup edge {home_attack_vs_away_def:+.2f}. "
+        f"Away attack ({away_gpg:.1f} GPG) vs Home defence ({home_cpg:.1f} CPG): "
+        f"matchup edge {away_attack_vs_home_def:+.2f}."
+    )
+
+    return FactorResult(
+        name="attacking_matchup",
+        score=score,
+        confidence=conf,
+        rationale=rationale,
+        data_points={
+            "home_gpg": round(home_gpg, 2),
+            "home_cpg": round(home_cpg, 2),
+            "away_gpg": round(away_gpg, 2),
+            "away_cpg": round(away_cpg, 2),
+            "home_attack_vs_away_def": round(home_attack_vs_away_def, 3),
+            "away_attack_vs_home_def": round(away_attack_vs_home_def, 3),
+            "matchup_diff": round(matchup_diff, 3),
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Factor 15 — xG Quality
+# ═══════════════════════════════════════════════════════════════
+
+def xg_quality(
+    db: Database,
+    home_id: int,
+    away_id: int,
+    league_id: int,
+    season: str,
+) -> FactorResult:
+    """Compare expected goals (xG) vs actual goals to assess underlying quality.
+
+    Overperforming xG (scoring more than expected) can indicate good finishing
+    but may regress.  Underperforming suggests underlying quality better than
+    results show.
+
+    Falls back gracefully if no xG data is available.
+    """
+    # Fetch match stats with xG data
+    home_recent = db.get_recent_matches(home_id, limit=10)
+    away_recent = db.get_recent_matches(away_id, limit=10)
+
+    if not home_recent and not away_recent:
+        return _empty_result("xg_quality", "No match data for xG analysis")
+
+    def _xg_stats(matches: list[dict], team_id: int) -> dict[str, Any] | None:
+        """Compute xG stats for a team across recent matches."""
+        xg_values: list[float] = []
+        actual_goals: list[int] = []
+
+        for m in matches:
+            match_id = m.get("id")
+            if match_id is None:
+                continue
+            stats = db.get_match_stats(match_id)
+            if not stats:
+                continue
+            team_stat = next((s for s in stats if s["team_id"] == team_id), None)
+            if team_stat and team_stat.get("expected_goals") is not None:
+                xg_values.append(float(team_stat["expected_goals"]))
+                actual_goals.append(_goals_for(m, team_id))
+
+        if len(xg_values) < 3:  # Minimum 3 matches with xG data
+            return None
+
+        n = len(xg_values)
+        avg_xg = _safe_divide(sum(xg_values), n)
+        avg_actual = _safe_divide(sum(actual_goals), n)
+        xg_diff = avg_actual - avg_xg  # Positive = overperforming xG
+
+        return {
+            "avg_xg": round(avg_xg, 3),
+            "avg_actual": round(avg_actual, 3),
+            "xg_diff": round(xg_diff, 3),
+            "sample": n,
+            "xg_overperformance": xg_diff > 0.2,
+            "xg_underperformance": xg_diff < -0.2,
+        }
+
+    h_xg = _xg_stats(home_recent, home_id) if home_recent else None
+    a_xg = _xg_stats(away_recent, away_id) if away_recent else None
+
+    if not h_xg and not a_xg:
+        return _empty_result("xg_quality", "No xG data found in match statistics")
+
+    parts: list[str] = []
+    score = 0.0
+
+    if h_xg:
+        parts.append(
+            f"Home xG: {h_xg['avg_xg']:.2f} avg, actual {h_xg['avg_actual']:.2f} "
+            f"({'overperforming' if h_xg['xg_overperformance'] else 'underperforming' if h_xg['xg_underperformance'] else 'on track'})"
+        )
+        # Underperforming xG = underlying quality is better = buy
+        score += -h_xg["xg_diff"] * 0.3  # Regress toward xG
+
+    if a_xg:
+        parts.append(
+            f"Away xG: {a_xg['avg_xg']:.2f} avg, actual {a_xg['avg_actual']:.2f} "
+            f"({'overperforming' if a_xg['xg_overperformance'] else 'underperforming' if a_xg['xg_underperformance'] else 'on track'})"
+        )
+        score -= -a_xg["xg_diff"] * 0.3
+
+    score = max(-1.0, min(1.0, score))
+    n_total = (h_xg or {}).get("sample", 0) + (a_xg or {}).get("sample", 0)
+    conf = _confidence_from_matches(n_total, ideal=10) * 0.65
+
+    return FactorResult(
+        name="xg_quality",
+        score=score,
+        confidence=conf,
+        rationale=". ".join(parts) + ".",
+        data_points={
+            "home": h_xg or {},
+            "away": a_xg or {},
+            "home_avg_xg": h_xg.get("avg_xg") if h_xg else None,
+            "away_avg_xg": a_xg.get("avg_xg") if a_xg else None,
+            "home_xg_diff": h_xg.get("xg_diff") if h_xg else None,
+            "away_xg_diff": a_xg.get("xg_diff") if a_xg else None,
+        },
+    )
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Factor Registry
 # ═══════════════════════════════════════════════════════════════
@@ -1398,4 +1929,7 @@ ALL_FACTORS: dict[str, callable] = {
     "scoring_patterns": scoring_patterns,
     "rest_days": rest_days,
     "rivalry": rivalry,
+    "venue_advantage": venue_advantage,
+    "attacking_matchup": attacking_matchup,
+    "xg_quality": xg_quality,
 }

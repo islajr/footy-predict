@@ -348,16 +348,19 @@ MARKETS: dict[str, MarketDef] = {
 # ═══════════════════════════════════════════════════════════════
 
 FACTOR_WEIGHTS: dict[str, float] = {
-    "recent_form":       0.180,
-    "home_form":         0.150,
-    "away_form":         0.150,
-    "scoring_frequency": 0.120,
-    "defensive_record":  0.120,
-    "head_to_head":      0.100,
+    "recent_form":       0.155,
+    "home_form":         0.130,
+    "away_form":         0.130,
+    "scoring_frequency": 0.100,
+    "defensive_record":  0.100,
+    "head_to_head":      0.090,
     "league_position":   0.080,
-    "goal_timing":       0.040,
-    "momentum":          0.030,
+    "attacking_matchup": 0.060,
+    "venue_advantage":   0.055,
+    "goal_timing":       0.035,
+    "momentum":          0.025,
     "scoring_patterns":  0.020,
+    "xg_quality":        0.010,
     "rest_days":         0.005,
     "rivalry":           0.005,
 }

@@ -454,45 +454,63 @@ class AnalysisEngine:
     def _gather_patterns(
         self, factor_results: list[FactorResult]
     ) -> dict[str, Any]:
-        """Extract historical pattern data from factor results for market models."""
+        """Extract historical pattern data from factor results for market models.
+
+        Key names are aligned to the actual data_points keys emitted by each
+        factor function after Phase 1 enrichment.
+        """
         patterns: dict[str, Any] = {}
 
-        scoring_patterns = next(
+        # --- Scoring patterns (BTTS / O/U rates) ---
+        sp = next(
             (f for f in factor_results if f.name == "scoring_patterns"), None
         )
-        if scoring_patterns and scoring_patterns.data_points:
-            dp = scoring_patterns.data_points
-            patterns["btts_rate"] = dp.get("btts_rate")
-            patterns["over_2_5_rate"] = dp.get("over_2_5_rate")
-            patterns["over_1_5_rate"] = dp.get("over_1_5_rate")
-            patterns["over_3_5_rate"] = dp.get("over_3_5_rate")
+        if sp and sp.data_points:
+            dp = sp.data_points
+            # Poisson-based probabilities (new keys from enrichment)
+            patterns["btts_rate"] = dp.get("btts_prob") or dp.get("btts_avg_pct")
+            patterns["over_2_5_rate"] = dp.get("over_2_5_prob") or dp.get("over_2_5_avg_pct")
+            patterns["over_1_5_rate"] = dp.get("over_1_5_prob")
+            patterns["over_3_5_rate"] = dp.get("over_3_5_prob")
+            patterns["over_0_5_rate"] = dp.get("over_0_5_prob")
 
+        # --- Scoring frequency: top-level GPG keys ---
         scoring = next(
             (f for f in factor_results if f.name == "scoring_frequency"), None
         )
         if scoring and scoring.data_points:
-            patterns["home_gpg"] = scoring.data_points.get("home", {}).get("avg_goals")
-            patterns["away_gpg"] = scoring.data_points.get("away", {}).get("avg_goals")
+            dp = scoring.data_points
+            # Use top-level keys set in Phase 1 enrichment
+            patterns["home_gpg"] = dp.get("home_gpg") or dp.get("home", {}).get("avg_goals")
+            patterns["away_gpg"] = dp.get("away_gpg") or dp.get("away", {}).get("avg_goals")
 
+        # --- Defensive record: top-level CS rate keys ---
         defence = next(
             (f for f in factor_results if f.name == "defensive_record"), None
         )
         if defence and defence.data_points:
-            patterns["home_cs_rate"] = defence.data_points.get("home", {}).get("clean_sheet_rate")
-            patterns["away_cs_rate"] = defence.data_points.get("away", {}).get("clean_sheet_rate")
+            dp = defence.data_points
+            # Use top-level keys set in Phase 1 enrichment
+            patterns["home_cs_rate"] = dp.get("home_cs_rate") or dp.get("home", {}).get("clean_sheet_rate")
+            patterns["away_cs_rate"] = dp.get("away_cs_rate") or dp.get("away", {}).get("clean_sheet_rate")
 
+        # --- Recent form: win/draw/loss rates ---
         form = next((f for f in factor_results if f.name == "recent_form"), None)
         if form and form.data_points:
-            patterns["home_win_rate"] = form.data_points.get("home", {}).get("win_rate")
-            patterns["away_win_rate"] = form.data_points.get("away", {}).get("win_rate")
-            h_draw = form.data_points.get("home", {}).get("draw_rate")
-            a_draw = form.data_points.get("away", {}).get("draw_rate")
-            if h_draw is not None and a_draw is not None:
-                patterns["draw_rate"] = (h_draw + a_draw) / 2.0
-            elif h_draw is not None:
-                patterns["draw_rate"] = h_draw
-            else:
-                patterns["draw_rate"] = a_draw
+            dp = form.data_points
+            # recent_form stores win_rate/draw_rate at the top level (not nested)
+            h_wr = dp.get("home_win_rate") or (dp.get("home", {}) or {}).get("win_rate")
+            a_wr = dp.get("away_win_rate") or (dp.get("away", {}) or {}).get("win_rate")
+            h_dr = dp.get("home_draw_rate") or (dp.get("home", {}) or {}).get("draw_rate")
+            a_dr = dp.get("away_draw_rate") or (dp.get("away", {}) or {}).get("draw_rate")
+            patterns["home_win_rate"] = h_wr
+            patterns["away_win_rate"] = a_wr
+            if h_dr is not None and a_dr is not None:
+                patterns["draw_rate"] = (h_dr + a_dr) / 2.0
+            elif h_dr is not None:
+                patterns["draw_rate"] = h_dr
+            elif a_dr is not None:
+                patterns["draw_rate"] = a_dr
 
         return patterns
 
