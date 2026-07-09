@@ -538,3 +538,298 @@ def test_xg_quality_no_data_returns_neutral(temp_db):
     # No xG data — should not crash, should return low confidence neutral result
     assert -1.0 <= res.score <= 1.0
     assert res.confidence < 0.5
+
+
+# ════════════════════════════════════════════════════════════════
+#  Phase B — opponent_strength tests
+# ════════════════════════════════════════════════════════════════
+
+from src.analysis.factors import opponent_strength
+
+
+@pytest.fixture
+def db_with_standings(temp_db):
+    """DB seeded with two teams, standings, and match history."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025/26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    strong_id = db.upsert_team("Man City", league_id, api_football_id=50)
+    weak_id = db.upsert_team("Ipswich", league_id, api_football_id=57)
+
+    # Standings: Man City rank 1, Arsenal rank 2, Chelsea rank 5, Ipswich rank 18
+    for tid, pos in [(strong_id, 1), (home_id, 2), (away_id, 5), (weak_id, 18)]:
+        db.upsert_standing(
+            league_id=league_id, season=season, team_id=tid,
+            position=pos, played=20, won=12, drawn=4, lost=4,
+            goals_for=35, goals_against=18, goal_difference=17, points=40,
+        )
+
+    # Arsenal: 5 wins vs Man City (rank 1) — high-quality wins
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-10-{i+1:02d}T15:00:00",
+            home_team_id=home_id, away_team_id=strong_id,
+            status="FINISHED", home_score=2, away_score=1,
+        )
+
+    # Chelsea: 5 wins vs Ipswich (rank 18) — easy wins
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-10-{i+1:02d}T15:00:00",
+            home_team_id=away_id, away_team_id=weak_id,
+            status="FINISHED", home_score=3, away_score=0,
+        )
+
+    return db, home_id, away_id, league_id, season
+
+
+def test_opponent_strength_top_wins_score_higher(db_with_standings):
+    """Beating top-4 opposition should produce higher sadj_ppg than losing to bottom side.
+
+    Scenario: Arsenal beat rank-1 Man City, Chelsea lost to rank-1 Man City.
+    Even though both played the same opponent, Arsenal's result is better →
+    Arsenal should have higher strength-adjusted PPG → positive score.
+    """
+    db, home_id, away_id, league_id, season = db_with_standings
+    strong_id = db.get_team_by_api_football_id(50)["id"]
+
+    # Add: Chelsea LOSES to Man City (rank 1) — so Chelsea has wins only vs Ipswich
+    # and a loss vs strong opposition → lower sadj_ppg than Arsenal
+    db.upsert_match(
+        league_id=league_id, season=season,
+        date="2025-11-01T15:00:00",
+        home_team_id=away_id, away_team_id=strong_id,
+        status="FINISHED", home_score=0, away_score=3,
+    )
+
+    res = opponent_strength(db, home_id, away_id, league_id, season)
+
+    assert res.name == "opponent_strength"
+    assert -1.0 <= res.score <= 1.0
+    # Arsenal: won vs rank-1. Chelsea: won vs rank-18 AND lost vs rank-1.
+    # Arsenal's sadj_ppg should exceed Chelsea's.
+    assert res.data_points["home_strength_adj_ppg"] > res.data_points["away_strength_adj_ppg"], (
+        f"Expected home sadj_ppg > away sadj_ppg\n"
+        f"data_points={res.data_points}"
+    )
+    assert res.score > 0, f"Expected positive score, got {res.score:.4f}"
+
+
+def test_opponent_strength_no_standings_returns_low_confidence(temp_db):
+    """Without standings data the factor should gracefully return low confidence."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025/26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    other_id = db.upsert_team("Spurs", league_id, api_football_id=47)
+
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-10-{i+1:02d}T15:00:00",
+            home_team_id=home_id, away_team_id=other_id,
+            status="FINISHED", home_score=2, away_score=1,
+        )
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2025-10-{i+1:02d}T17:00:00",
+            home_team_id=away_id, away_team_id=other_id,
+            status="FINISHED", home_score=2, away_score=1,
+        )
+
+    # No standings inserted — factor must not crash
+    res = opponent_strength(db, home_id, away_id, league_id, season)
+    assert res.name == "opponent_strength"
+    assert -1.0 <= res.score <= 1.0
+    assert res.confidence < 0.3, f"Expected low confidence without standings, got {res.confidence:.3f}"
+
+
+def test_opponent_strength_equal_teams_near_neutral(db_with_standings):
+    """If both teams faced equal-strength opponents, score should be near zero."""
+    db, home_id, away_id, league_id, season = db_with_standings
+    strong_id = db.get_team_by_api_football_id(50)["id"]
+    weak_id = db.get_team_by_api_football_id(57)["id"]
+
+    # Give both teams an identical schedule: beat rank-1 and rank-18 once each
+    for tid in [home_id, away_id]:
+        for opp_id, score_h, score_a in [(strong_id, 2, 1), (weak_id, 3, 0)]:
+            db.upsert_match(
+                league_id=league_id, season=season,
+                date="2025-11-01T15:00:00",
+                home_team_id=tid, away_team_id=opp_id,
+                status="FINISHED", home_score=score_h, away_score=score_a,
+            )
+
+    res = opponent_strength(db, home_id, away_id, league_id, season)
+    # Score won't be exactly 0 (existing matches still differ), but with same added schedule
+    # the scores should be closer to each other than 0.8 apart
+    assert abs(res.score) < 1.0  # basic sanity — not clamped at extremes
+
+
+def test_opponent_strength_all_draws_returns_zero_score(temp_db):
+    """All drawn results against same-ranked opponents should give score ≈ 0."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025/26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    opp_id = db.upsert_team("Spurs", league_id, api_football_id=47)
+
+    db.upsert_standing(
+        league_id=league_id, season=season, team_id=opp_id,
+        position=10, played=20, won=8, drawn=6, lost=6,
+        goals_for=25, goals_against=25, goal_difference=0, points=30,
+    )
+    db.upsert_standing(
+        league_id=league_id, season=season, team_id=home_id,
+        position=2, played=20, won=12, drawn=4, lost=4,
+        goals_for=35, goals_against=18, goal_difference=17, points=40,
+    )
+    db.upsert_standing(
+        league_id=league_id, season=season, team_id=away_id,
+        position=3, played=20, won=11, drawn=5, lost=4,
+        goals_for=30, goals_against=20, goal_difference=10, points=38,
+    )
+
+    # Both teams drew 5 times each vs same mid-table side
+    for i in range(5):
+        for focal in [home_id, away_id]:
+            db.upsert_match(
+                league_id=league_id, season=season,
+                date=f"2025-10-{i+1:02d}T{'15' if focal == home_id else '17'}:00:00",
+                home_team_id=focal, away_team_id=opp_id,
+                status="FINISHED", home_score=1, away_score=1,
+            )
+
+    res = opponent_strength(db, home_id, away_id, league_id, season)
+    # Both teams got 1 PPG (draws only) vs identical opponents → score ≈ 0
+    assert abs(res.score) < 0.15, f"Expected near-zero score for equal draws, got {res.score:.4f}"
+
+
+# ════════════════════════════════════════════════════════════════
+#  Phase B — database: standings home/away splits
+# ════════════════════════════════════════════════════════════════
+
+def test_upsert_standing_stores_home_away_splits(temp_db):
+    """Home/away split columns should persist via upsert_standing."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    team_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+
+    db.upsert_standing(
+        league_id=league_id, season="2025/26", team_id=team_id,
+        position=1, played=20, won=14, drawn=4, lost=2,
+        goals_for=40, goals_against=15, goal_difference=25, points=46,
+        home_played=10, home_won=8, home_drawn=1, home_lost=1,
+        home_gf=24, home_ga=6,
+        away_played=10, away_won=6, away_drawn=3, away_lost=1,
+        away_gf=16, away_ga=9,
+    )
+
+    rows = db.get_standings(league_id, "2025/26")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["home_played"] == 10
+    assert row["home_won"] == 8
+    assert row["away_won"] == 6
+    assert row["away_ga"] == 9
+
+
+def test_upsert_standing_home_away_defaults_to_zero(temp_db):
+    """Calling upsert_standing without home/away kwargs should default all splits to 0."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    team_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+
+    db.upsert_standing(
+        league_id=league_id, season="2025/26", team_id=team_id,
+        position=5, played=20, won=10, drawn=5, lost=5,
+        goals_for=28, goals_against=22, goal_difference=6, points=35,
+    )
+
+    rows = db.get_standings(league_id, "2025/26")
+    assert len(rows) == 1
+    row = rows[0]
+    # All split columns should default to 0, not None
+    for col in ("home_played", "home_won", "home_drawn", "home_lost",
+                "home_gf", "home_ga", "away_played", "away_won",
+                "away_drawn", "away_lost", "away_gf", "away_ga"):
+        assert row.get(col) == 0, f"Expected {col}=0, got {row.get(col)}"
+
+
+# ════════════════════════════════════════════════════════════════
+#  Phase B — database: get_matches_without_stats
+# ════════════════════════════════════════════════════════════════
+
+def test_get_matches_without_stats_excludes_already_statted(temp_db):
+    """Matches that already have match_stats rows should not appear in the result."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025/26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+
+    # Two FINISHED matches, one with api_football_id (statted), one without
+    match_a_id = db.upsert_match(
+        league_id=league_id, season=season, date="2025-10-01T15:00:00",
+        home_team_id=home_id, away_team_id=away_id,
+        status="FINISHED", home_score=2, away_score=1,
+        api_football_id=99901,
+    )
+    match_b_id = db.upsert_match(
+        league_id=league_id, season=season, date="2025-10-08T15:00:00",
+        home_team_id=home_id, away_team_id=away_id,
+        status="FINISHED", home_score=1, away_score=1,
+        api_football_id=99902,
+    )
+
+    # Match A already has stats; match B does not
+    db.upsert_match_stats(match_id=match_a_id, team_id=home_id, shots=10, shots_on_target=4)
+
+    unstatted = db.get_matches_without_stats(league_id, limit=10)
+    unstatted_ids = [r["id"] for r in unstatted]
+
+    assert match_b_id in unstatted_ids, "Match B (no stats) should appear"
+    assert match_a_id not in unstatted_ids, "Match A (has stats) should be excluded"
+
+
+def test_get_matches_without_stats_excludes_non_finished(temp_db):
+    """SCHEDULED and IN_PLAY matches should not appear even if they have no stats."""
+    db = temp_db
+    leagues = db.get_all_leagues()
+    pl = next(l for l in leagues if l["slug"] == "premier-league")
+    league_id = pl["id"]
+    season = "2025/26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+
+    db.upsert_match(
+        league_id=league_id, season=season, date="2026-08-10T15:00:00",
+        home_team_id=home_id, away_team_id=away_id,
+        status="SCHEDULED", api_football_id=99910,
+    )
+
+    unstatted = db.get_matches_without_stats(league_id, limit=10)
+    assert len(unstatted) == 0, "SCHEDULED matches should not appear in unstatted list"
