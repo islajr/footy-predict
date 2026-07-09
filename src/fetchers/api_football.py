@@ -49,6 +49,58 @@ logger = logging.getLogger(__name__)
 _SOURCE = "api_football"
 
 
+def _parse_fixture_stats(statistics: list[dict]) -> dict:
+    """Map API-Football ``/fixtures/statistics`` response to ``match_stats`` column names.
+
+    API-Football returns a list of ``{"type": "...", "value": ...}`` dicts.
+    This function extracts the ones we store and converts them to our schema keys.
+
+    Args:
+        statistics: The ``statistics`` array from one team's entry in the response.
+
+    Returns:
+        Dict of keyword args suitable for ``db.upsert_match_stats(**parsed)``.
+    """
+    # Map API-Football type strings → our column names
+    type_map: dict[str, str] = {
+        "Shots on Goal":          "shots_on_target",
+        "Shots off Goal":         "shots",          # partial; total shots computed below
+        "Total Shots":            "shots",
+        "Ball Possession":        "possession",
+        "Corner Kicks":           "corners",
+        "Fouls":                  "fouls",
+        "Yellow Cards":           "yellow_cards",
+        "Red Cards":              "red_cards",
+        "Offsides":               "offsides",
+        "Total passes":           "passes",
+        "Passes accurate":        "passes",         # overwrite if more specific
+        "Passes %":               "pass_accuracy",
+        "expected_goals":         "expected_goals",
+        "Expected Goals":         "expected_goals",  # API uses this capitalisation
+    }
+
+    parsed: dict = {}
+    for entry in statistics:
+        api_type = entry.get("type", "")
+        raw_value = entry.get("value")
+        col = type_map.get(api_type)
+        if col is None or raw_value is None:
+            continue
+        # Strip % sign from possession / pass accuracy
+        if isinstance(raw_value, str) and raw_value.endswith("%"):
+            try:
+                raw_value = float(raw_value.rstrip("%"))
+            except ValueError:
+                continue
+        try:
+            parsed[col] = float(raw_value) if col in ("possession", "pass_accuracy", "expected_goals") else int(raw_value)
+        except (ValueError, TypeError):
+            pass
+
+    return parsed
+
+
+
 class APIFootballError(Exception):
     """Raised when the API-Football API returns an error response."""
 
@@ -486,14 +538,89 @@ class APIFootballClient:
                 )
 
         logger.info(
-            "Stored %d/%d fixtures for %s (season %s)",
-            count, len(fixtures), league_slug, season,
+            "Stored %d/%d team stats for %s", count, len(teams), league_slug
+        )
+        return count
+
+    async def fetch_and_store_match_stats(
+        self,
+        league_slug: str,
+        limit: int = 20,
+    ) -> int:
+        """Fetch per-match statistics from ``/fixtures/statistics`` and store in ``match_stats``.
+
+        Identifies FINISHED matches that have no ``match_stats`` rows yet, then
+        fetches statistics for up to *limit* of them, newest first. Each fixture
+        call costs 1 API request, so the default limit of 20 is deliberately
+        conservative to preserve daily quota for analysis and other sync steps.
+
+        **Local-use note**: This is designed for manual or scheduled daily runs,
+        not for real-time serving. Run ``footy sync --stats`` once per day.
+        The quota guard stops automatically if the daily limit is reached.
+
+        Args:
+            league_slug: League identifier (e.g. ``'premier-league'``).
+            limit:       Maximum fixtures to backfill in a single run (default 20).
+
+        Returns:
+            Number of fixtures whose stats were successfully stored.
+        """
+        league = self._get_league(league_slug)
+        league_id = self.db.upsert_league(
+            name=league.name,
+            country=league.country,
+            slug=league.slug,
+            api_football_id=league.api_football_id,
+            fdo_code=league.football_data_org_code,
+            csv_code=league.csv_code,
+            tier=league.tier,
+        )
+
+        unstatted = self.db.get_matches_without_stats(league_id, limit=limit)
+        if not unstatted:
+            logger.info("All FINISHED matches for %s already have stats.", league_slug)
+            return 0
+
+        count = 0
+        for match in unstatted:
+            api_fixture_id = match.get("api_football_id")
+            if not api_fixture_id:
+                continue
+            try:
+                raw_stats = await self.get_fixture_statistics(api_fixture_id)
+                for team_entry in raw_stats:
+                    team_api_id = team_entry.get("team", {}).get("id")
+                    team = self.db.get_team_by_api_football_id(team_api_id)
+                    if not team:
+                        continue
+                    parsed = _parse_fixture_stats(team_entry.get("statistics", []))
+                    self.db.upsert_match_stats(
+                        match_id=match["id"],
+                        team_id=team["id"],
+                        **parsed,
+                    )
+                count += 1
+            except (QuotaExhaustedError, RateLimitError):
+                logger.warning(
+                    "Quota/rate limit hit during match stats fetch. "
+                    "Stored stats for %d/%d fixtures.",
+                    count, len(unstatted),
+                )
+                break
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch stats for fixture api_id=%s: %s",
+                    api_fixture_id, exc,
+                )
+
+        logger.info(
+            "Stored match stats for %d/%d fixtures for %s",
+            count, len(unstatted), league_slug,
         )
         return count
 
     async def fetch_and_store_standings(self, league_slug: str) -> int:
-        """
-        Fetch current standings and upsert into DB.
+        """Fetch current standings and upsert into DB.
 
         Args:
             league_slug: League identifier.
@@ -540,6 +667,9 @@ class APIFootballClient:
 
                 all_stats = entry.get("all", {})
 
+                home_info = entry.get("home", {})
+                away_info = entry.get("away", {})
+
                 self.db.upsert_standing(
                     league_id=league_id,
                     season=season_label,
@@ -554,6 +684,19 @@ class APIFootballClient:
                     goal_difference=entry.get("goalsDiff", 0),
                     points=entry.get("points", 0),
                     form=entry.get("form"),
+                    # Home/away splits — present in every API-Football standings response
+                    home_played=home_info.get("played", 0) or 0,
+                    home_won=home_info.get("win", 0) or 0,
+                    home_drawn=home_info.get("draw", 0) or 0,
+                    home_lost=home_info.get("lose", 0) or 0,
+                    home_gf=home_info.get("goals", {}).get("for", 0) or 0,
+                    home_ga=home_info.get("goals", {}).get("against", 0) or 0,
+                    away_played=away_info.get("played", 0) or 0,
+                    away_won=away_info.get("win", 0) or 0,
+                    away_drawn=away_info.get("draw", 0) or 0,
+                    away_lost=away_info.get("lose", 0) or 0,
+                    away_gf=away_info.get("goals", {}).get("for", 0) or 0,
+                    away_ga=away_info.get("goals", {}).get("against", 0) or 0,
                 )
                 count += 1
             except Exception as exc:

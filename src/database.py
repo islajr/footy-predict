@@ -311,9 +311,26 @@ class Database:
             conn.close()
 
     def _init_db(self) -> None:
-        """Create all tables if they don't exist."""
+        """Create all tables and apply pending SQL migrations."""
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+        self._apply_migrations()
+
+
+    def _apply_migrations(self) -> None:
+        """Apply any SQL migration files in the migrations/ directory in order."""
+        migrations_dir = Path(__file__).parent.parent / "migrations"
+        if not migrations_dir.is_dir():
+            return
+        migration_files = sorted(migrations_dir.glob("*.sql"))
+        with self._connect() as conn:
+            for migration_path in migration_files:
+                sql = migration_path.read_text()
+                try:
+                    conn.executescript(sql)
+                except Exception:
+                    # Columns added by ALTER TABLE already exist — safe to ignore
+                    pass
 
     # ── Helpers ─────────────────────────────────────────────
 
@@ -873,16 +890,40 @@ class Database:
         goal_difference: int = 0,
         points: int = 0,
         form: str | None = None,
+        # Home split (populated from API-Football standings response)
+        home_played: int = 0,
+        home_won: int = 0,
+        home_drawn: int = 0,
+        home_lost: int = 0,
+        home_gf: int = 0,
+        home_ga: int = 0,
+        # Away split (populated from API-Football standings response)
+        away_played: int = 0,
+        away_won: int = 0,
+        away_drawn: int = 0,
+        away_lost: int = 0,
+        away_gf: int = 0,
+        away_ga: int = 0,
     ) -> None:
-        """Insert or update a team's league standing."""
+        """Insert or update a team's league standing.
+
+        Home/away split kwargs are optional — they default to 0 for sources
+        that do not provide venue-specific standings (e.g. football-data.org).
+        They are populated from the API-Football standings response which
+        includes ``entry["home"]`` and ``entry["away"]`` sub-dicts.
+        """
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO standings
                     (league_id, season, team_id, position, played, won, drawn,
                      lost, goals_for, goals_against, goal_difference, points,
-                     form, fetched_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                     form, fetched_at,
+                     home_played, home_won, home_drawn, home_lost, home_gf, home_ga,
+                     away_played, away_won, away_drawn, away_lost, away_gf, away_ga)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'),
+                        ?, ?, ?, ?, ?, ?,
+                        ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(league_id, season, team_id) DO UPDATE SET
                     position=excluded.position,
                     played=excluded.played,
@@ -894,10 +935,24 @@ class Database:
                     goal_difference=excluded.goal_difference,
                     points=excluded.points,
                     form=excluded.form,
-                    fetched_at=excluded.fetched_at
+                    fetched_at=excluded.fetched_at,
+                    home_played=excluded.home_played,
+                    home_won=excluded.home_won,
+                    home_drawn=excluded.home_drawn,
+                    home_lost=excluded.home_lost,
+                    home_gf=excluded.home_gf,
+                    home_ga=excluded.home_ga,
+                    away_played=excluded.away_played,
+                    away_won=excluded.away_won,
+                    away_drawn=excluded.away_drawn,
+                    away_lost=excluded.away_lost,
+                    away_gf=excluded.away_gf,
+                    away_ga=excluded.away_ga
                 """,
                 (league_id, season, team_id, position, played, won, drawn,
-                 lost, goals_for, goals_against, goal_difference, points, form),
+                 lost, goals_for, goals_against, goal_difference, points, form,
+                 home_played, home_won, home_drawn, home_lost, home_gf, home_ga,
+                 away_played, away_won, away_drawn, away_lost, away_gf, away_ga),
             )
 
     def get_standings(
@@ -914,6 +969,41 @@ class Database:
                 (league_id, season),
             ).fetchall()
             return self._rows_to_dicts(rows)
+
+    def get_matches_without_stats(self, league_id: int, limit: int = 20) -> list[dict[str, Any]]:
+        """Return FINISHED matches that have no match_stats rows yet, newest first.
+
+        Used by ``fetch_and_store_match_stats`` to identify which fixtures need
+        their per-team statistics backfilled from ``/fixtures/statistics``.
+
+        Args:
+            league_id: Internal league DB ID to filter by.
+            limit:     Maximum number of matches to return per call. Keep this
+                       conservative (default 20) to avoid burning daily API quota
+                       in a single run.
+
+        Returns:
+            List of dicts with keys: ``id``, ``api_football_id``,
+            ``home_team_id``, ``away_team_id``.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT m.id, m.api_football_id, m.home_team_id, m.away_team_id
+                FROM matches m
+                WHERE m.league_id = ?
+                  AND m.status = 'FINISHED'
+                  AND m.api_football_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM match_stats ms WHERE ms.match_id = m.id
+                  )
+                ORDER BY m.date DESC
+                LIMIT ?
+                """,
+                (league_id, limit),
+            ).fetchall()
+            return self._rows_to_dicts(rows)
+
 
     # ═══════════════════════════════════════════════════════
     #  Predictions

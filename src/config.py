@@ -348,21 +348,29 @@ MARKETS: dict[str, MarketDef] = {
 # ═══════════════════════════════════════════════════════════════
 
 FACTOR_WEIGHTS: dict[str, float] = {
-    "recent_form":       0.155,
-    "home_form":         0.130,
-    "away_form":         0.130,
-    "scoring_frequency": 0.100,
-    "defensive_record":  0.100,
-    "head_to_head":      0.090,
-    "league_position":   0.080,
-    "attacking_matchup": 0.060,
-    "venue_advantage":   0.055,
-    "goal_timing":       0.035,
-    "momentum":          0.025,
-    "scoring_patterns":  0.020,
-    "xg_quality":        0.010,
-    "rest_days":         0.005,
-    "rivalry":           0.005,
+    # Form cluster — deliberately superior; these are the most predictive signals.
+    # A team's recent results, venue-specific record, and momentum are the
+    # strongest indicators of performance. These weights are intentionally
+    # higher and are NOT reduced to accommodate new factors.
+    "recent_form":        0.155,
+    "home_form":          0.130,
+    "away_form":          0.130,
+    # Contextual cluster — team quality signals independent of recent run
+    "scoring_frequency":  0.100,
+    "defensive_record":   0.100,
+    "head_to_head":       0.075,   # -0.015 vs Phase A
+    "league_position":    0.075,   # -0.005 vs Phase A; home/away splits now enrich this
+    "attacking_matchup":  0.060,
+    "venue_advantage":    0.055,
+    # Nuance cluster — real signals but secondary to form; weights reduced to
+    # accommodate opponent_strength without touching the form cluster above.
+    "opponent_strength":  0.045,   # Phase B: adjusts form quality by opponent rank
+    "momentum":           0.020,   # -0.005 vs Phase A
+    "goal_timing":        0.025,   # -0.010 vs Phase A
+    "scoring_patterns":   0.010,   # -0.010 vs Phase A
+    "xg_quality":         0.010,   # unchanged; grows as match_stats data populates
+    "rest_days":          0.005,   # local tool — manual syncs mean less urgency
+    "rivalry":            0.005,   # unchanged at floor weight
 }
 
 # Sanity check: weights must sum to 1.0

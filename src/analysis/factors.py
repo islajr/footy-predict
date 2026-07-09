@@ -1918,6 +1918,115 @@ def xg_quality(
 
 
 # ═══════════════════════════════════════════════════════════════
+#  Factor 16 — Opponent Strength
+# ═══════════════════════════════════════════════════════════════
+
+def opponent_strength(
+    db: Database,
+    home_id: int,
+    away_id: int,
+    league_id: int,
+    season: str,
+) -> FactorResult:
+    """Adjust recent form quality by the league rank of each opponent faced.
+
+    A win against a top-4 side is weighted more than a win against a
+    relegation-zone side.  This removes the bias present in ``recent_form``
+    where beating bottom-table opposition repeatedly inflates the score.
+
+    **Weight philosophy**: This factor is intentionally lower-weighted than the
+    raw form factors (recent_form, home_form, away_form).  Form is the primary
+    signal; opponent quality is a nuance on top of it.
+
+    Algorithm:
+        For the last N matches for each team:
+            weight_i = (max_pos + 1 - opponent_pos) / max_pos
+            adj_points_i = standard_points_i × weight_i
+        strength_adjusted_ppg = sum(adj_points) / sum(weights)
+        score = clamp((home_sadj_ppg - away_sadj_ppg) / 1.5, -1, 1)
+
+    Data requirement: current season standings must be available. Falls back
+    to standard PPG (score = 0.0, low confidence) when standings are absent.
+    """
+    home_matches = db.get_recent_matches(home_id, limit=10)
+    away_matches = db.get_recent_matches(away_id, limit=10)
+
+    if not home_matches or not away_matches:
+        return _empty_result(
+            "opponent_strength",
+            "Insufficient match history for strength-of-schedule adjustment",
+        )
+
+    standings = db.get_standings(league_id, season)
+    if not standings:
+        return _empty_result(
+            "opponent_strength",
+            "No standings data available — cannot weight opponents by rank",
+        )
+
+    # Build position lookup: team_id → league rank
+    max_pos = len(standings)
+    pos_lookup: dict[int, int] = {s["team_id"]: s["position"] for s in standings}
+
+    def _strength_adj_ppg(matches: list[dict], focal_id: int) -> tuple[float, int]:
+        """Return (strength_adjusted_ppg, n_with_position_data)."""
+        weighted_pts = 0.0
+        weight_sum = 0.0
+        found = 0
+        for m in matches:
+            is_home = m["home_team_id"] == focal_id
+            opp_id = m["away_team_id"] if is_home else m["home_team_id"]
+            hs, as_ = m.get("home_score") or 0, m.get("away_score") or 0
+            if is_home:
+                pts = 3 if hs > as_ else (1 if hs == as_ else 0)
+            else:
+                pts = 3 if as_ > hs else (1 if hs == as_ else 0)
+            opp_pos = pos_lookup.get(opp_id)
+            if opp_pos is None:
+                # Unknown opponent — use league-average weight (mid-table)
+                opp_pos = max_pos // 2
+            weight = max(0.05, (max_pos + 1 - opp_pos) / max_pos)
+            weighted_pts += pts * weight
+            weight_sum += weight
+            found += 1
+        sadj_ppg = weighted_pts / weight_sum if weight_sum > 0 else 0.0
+        return sadj_ppg, found
+
+    home_sadj, home_found = _strength_adj_ppg(home_matches, home_id)
+    away_sadj, away_found = _strength_adj_ppg(away_matches, away_id)
+
+    diff = home_sadj - away_sadj
+    score = max(-1.0, min(1.0, diff / 1.5))
+
+    n_with_standings = len([tid for tid in pos_lookup])
+    data_ratio = n_with_standings / max(max_pos, 1)
+    n_total = home_found + away_found
+    conf = _confidence_from_matches(n_total, ideal=16) * min(1.0, data_ratio) * 0.85
+
+    rationale = (
+        f"Strength-adjusted PPG — Home: {home_sadj:.2f} vs Away: {away_sadj:.2f} "
+        f"(diff {diff:+.2f}). Weighted by opponent league rank across last "
+        f"{home_found} home team and {away_found} away team matches. "
+        f"League has {max_pos} teams with standings data."
+    )
+
+    return FactorResult(
+        name="opponent_strength",
+        score=score,
+        confidence=conf,
+        rationale=rationale,
+        data_points={
+            "home_strength_adj_ppg": round(home_sadj, 3),
+            "away_strength_adj_ppg": round(away_sadj, 3),
+            "diff": round(diff, 3),
+            "max_league_position": max_pos,
+            "home_matches_used": home_found,
+            "away_matches_used": away_found,
+        },
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
 #  Factor Registry
 # ═══════════════════════════════════════════════════════════════
 
@@ -1937,4 +2046,5 @@ ALL_FACTORS: dict[str, callable] = {
     "venue_advantage": venue_advantage,
     "attacking_matchup": attacking_matchup,
     "xg_quality": xg_quality,
+    "opponent_strength": opponent_strength,   # Factor 16 (Phase B)
 }
