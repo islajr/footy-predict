@@ -26,9 +26,9 @@ footy-predict/
 │   │   ├── football_data_org.py # Client for Football-Data.org (secondary source)
 │   │   └── csv_loader.py       # Parser for football-data.co.uk CSV data
 │   ├── analysis/
-│   │   ├── factors.py          # Implementations for the 12 analysis factors
-│   │   ├── engine.py           # AnalysisEngine orchestrator
-│   │   └── markets.py          # Prediction models for the 9 betting markets
+│   │   ├── factors.py          # 15 analysis factors with venue-split data and Poisson stats
+│   │   ├── engine.py           # AnalysisEngine orchestrator; produces decision-support cards
+│   │   └── markets.py          # Multi-direction market models (33–35 picks per match)
 │   ├── tracking/
 │   │   ├── recorder.py         # Prediction outcomes evaluator
 │   │   ├── accuracy.py         # Dashboard metrics (Brier score & flat ROI)
@@ -78,7 +78,7 @@ The configuration module serves as the static registry for the application. It m
     *   `csv_code`: The division code for historical CSV downloads.
     *   `season_format`: `"european"` (August to May) or `"calendar"` (January to December).
 *   `MarketDef`: Defines the code, display name, SportyBet-equivalent label, and category ("result", "goals", "team_performance") for each betting market.
-*   `FACTOR_WEIGHTS`: Initial baseline weights for the 12 factors (must sum to exactly 1.0).
+*   `FACTOR_WEIGHTS`: Baseline weights for all 15 factors (must sum to exactly 1.0). Keys include the three new Phase A factors: `venue_advantage`, `attacking_matchup`, `xg_quality`.
 *   `CONFIDENCE_THRESHOLDS`: Maps probability ranges to confidence labels (HIGH: $\ge 0.75$, MEDIUM: $\ge 0.60$, LOW: $< 0.60$).
 
 ---
@@ -156,12 +156,12 @@ CREATE TABLE match_stats (
     UNIQUE(match_id, team_id)
 );
 
--- Predictions registry
+-- Predictions registry (one row per match × market × pick direction)
 CREATE TABLE predictions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     match_id INTEGER NOT NULL REFERENCES matches(id),
     market TEXT NOT NULL,
-    pick TEXT NOT NULL,
+    pick TEXT NOT NULL,       -- Direction e.g. "Over 2.5", "1 (Home Win)", "Home Win to Nil: No"
     probability REAL NOT NULL,
     confidence TEXT NOT NULL,
     implied_odds REAL,
@@ -170,7 +170,7 @@ CREATE TABLE predictions (
     supporting_stats TEXT DEFAULT '{}', -- JSON object
     factor_scores TEXT DEFAULT '{}', -- JSON object (factor_name -> score)
     created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(match_id, market)
+    UNIQUE(match_id, market, pick)  -- Broadened in migration 003 to allow multi-direction
 );
 
 -- Prediction Outcomes (Correct/Incorrect evaluation flags)
@@ -302,7 +302,7 @@ A utility for downloading and importing historical match data from football-data
 
 This module evaluates the database records to generate match analyses and betting predictions.
 
-### A. The 12 Analysis Factors (`factors.py`)
+### A. The 15 Analysis Factors (`factors.py`)
 
 Every factor function shares a common signature:
 `factor(db: Database, home_team_id: int, away_team_id: int, league_id: int, season: str) -> FactorResult`
@@ -310,18 +310,26 @@ Every factor function shares a common signature:
 *   **Inputs**: The database instance, the primary keys of the home and away teams, the league ID, and the current season string.
 *   **Returns**: A `FactorResult` containing a score ($s \in [-1.0, 1.0]$), a confidence rating ($c \in [0.0, 1.0]$), a text explanation, and a dictionary of raw backing statistics.
 
-1.  **Recent Form (`recent_form`)**: Queries the last 10 games for both teams using `db.get_recent_matches`. It calculates points per game (PPG) and applies an exponential decay weight to favor recent results.
-2.  **Home Form (`home_form`)**: Analyzes the home team's performance record specifically in home matches.
-3.  **Away Form (`away_form`)**: Analyzes the away team's performance record specifically in away matches.
-4.  **Scoring Frequency (`scoring_frequency`)**: Compares the average goals scored per game by both teams.
-5.  **Defensive Record (`defensive_record`)**: Compares the clean sheet rates and average goals conceded by both teams.
-6.  **Head-to-Head (`head_to_head`)**: Evaluates the historical results of matches played directly between the two teams.
-7.  **League Position (`league_position`)**: Compares the teams' current standings and points gap in the league table.
-8.  **Goal Timing (`goal_timing`)**: Checks for patterns in when teams score (first half vs. second half) to identify potential scoring trends.
-9.  **Momentum (`momentum`)**: Compares each team's average points from their last 3 matches against their average from the preceding 3 matches to detect shifts in form.
-10. **Scoring Patterns (`scoring_patterns`)**: Analyzes historical frequencies of Both Teams to Score (BTTS) and Over/Under goals.
-11. **Rest Days (`rest_days`)**: Compares the number of rest days each team has had since their last match to identify potential physical fatigue.
-12. **Rivalry (`rivalry`)**: Detects local derbies (teams from the same city or region) and increases the likelihood of an upset in the prediction.
+Key design principles introduced in Phase A:
+- **Venue-split data**: home team's home record vs. away team's away record is preferred over combined season stats
+- **Poisson probabilities**: pre-computed by `scoring_patterns` and consumed by market models
+- **Explicit data keys**: fixed top-level keys (`home_gpg`, `away_gpg`, `home_cs_rate_home`, `away_cs_rate_away`, `min_rest`, `btts_avg_pct`, etc.) guarantee correct cross-factor data exchange
+
+1.  **Recent Form (`recent_form`)**: Queries the last 10 games for both teams. Calculates PPG, win rate, draw rate, form string (W/D/L), and applies exponential decay weighting to favour recent results.
+2.  **Home Form (`home_form`)**: Home team's home-only record: win rate, GPG at home, clean sheet rate at home, failed-to-score rate, current winning/losing streak.
+3.  **Away Form (`away_form`)**: Away team's away-only record: same metrics as home form, applied to away fixtures.
+4.  **Scoring Frequency (`scoring_frequency`)**: Venue-split GPG (home at home, away from home), scored-in percentage, blank-game count. Exposes `home_gpg`, `away_gpg`, `home_home_gpg`, `away_away_gpg`, `home_scored_in_pct`, `away_scored_in_pct`.
+5.  **Defensive Record (`defensive_record`)**: Venue-split clean sheet rates and CPG. Exposes `home_cs_rate`, `away_cs_rate`, `home_cs_rate_home`, `away_cs_rate_away`, `home_cpg`, `away_cpg`.
+6.  **Head-to-Head (`head_to_head`)**: H2H win/draw/loss record, venue-split H2H, last 5 scorelines, average goals, BTTS rate in H2H fixtures.
+7.  **League Position (`league_position`)**: Table position, points gap, goals-for/against per game, form string from league table, win/draw percentage.
+8.  **Goal Timing (`goal_timing`)**: First-half vs second-half goal distribution. Exposes `home_1h_win_rate`, `away_1h_win_rate` for use by WEH market model.
+9.  **Momentum (`momentum`)**: Last 3 vs previous 3 results comparison for improving/declining trajectory.
+10. **Scoring Patterns (`scoring_patterns`)**: Historical BTTS rates, O/U rates, and pre-computed Poisson probabilities (`poisson_over_0_5` through `poisson_over_3_5`, `poisson_btts`, `poisson_home_over_0_5`, `poisson_away_over_0_5`).
+11. **Rest Days (`rest_days`)**: Days since last match. Exposes `min_rest` key for fixture congestion risk detection. Flags games where either team has < 3 days rest.
+12. **Rivalry (`rivalry`)**: Derby detection for same-city/region teams; adjusts expected upset frequency.
+13. **Venue Advantage (`venue_advantage`)** *(Phase A)*: Compares home team's home-only performance vs their away performance and vice versa for the away team. Produces a pure ground-bias signal.
+14. **Attacking Matchup (`attacking_matchup`)** *(Phase A)*: Direct attack-vs-defence blending. Home attack GPG minus away defensive CPG and vice versa. Produces `expected_home_goals`, `expected_away_goals`, `expected_total`, `expected_goal_diff`.
+15. **xG Quality (`xg_quality`)** *(Phase A)*: Shot quality analysis via expected goals data from `match_stats`. Detects over- and underperformance relative to xG; flags keepers on hot form.
 
 ---
 
@@ -344,23 +352,28 @@ The central orchestrator that coordinates the match analysis process.
 
 ### C. Market Models (`markets.py`)
 
-Contains the mathematical models for the 9 supported betting markets. These models convert factor scores and team statistics into probability ratings. Each model uses the formula:
-$$P_{\text{final}} = 0.6 \cdot P_{\text{historical}} + 0.4 \cdot P_{\text{model}}$$
+Contains the mathematical models for the 9 supported betting markets. Each model now emits **all meaningful pick directions** — no filtering occurs at this layer. The formatter is responsible for tiered display.
 
-*   **Models**:
-    *   `model_1x2(...) -> list[MarketRecommendation]`: Calculates the probabilities for a Home Win ($P_H$), Draw ($P_D$), and Away Win ($P_A$) by passing the overall score through a logistic function:
-        $$P_{\text{model, H}} = \frac{1}{1 + e^{-3 \cdot S}}$$
-        The raw model outputs are normalized to sum to 1.0 and blended with the teams' season win and draw frequencies.
-    *   `model_double_chance(...) -> list[MarketRecommendation]`: Combines the probabilities from the `1X2` model:
-        $$P(1X) = P_H + P_D, \quad P(X2) = P_D + P_A, \quad P(12) = P_H + P_A$$
-    *   `model_over_under(..., line: float) -> list[MarketRecommendation]`: Estimates total goals using a Poisson-like distribution, calculated from average goals scored and conceded. The result is blended with the historical rate of matches that exceeded or fell below the goal line.
-    *   `model_btts(...) -> MarketRecommendation`: Estimates the probability of both teams scoring by analyzing scoring frequency and clean sheet rates, blending the output with seasonal BTTS percentages.
-    *   `model_draw_no_bet(...) -> MarketRecommendation`: Calculates draw-no-bet probabilities by removing the draw outcome and scaling the remaining probabilities to sum to 1.0:
-        $$P_{\text{DNB, H}} = \frac{P_H}{P_H + P_A}$$
-    *   `model_win_to_nil(...) -> list[MarketRecommendation]`: Calculates the probability of a team winning without conceding a goal by combining the win probability with the clean sheet rate.
-    *   `model_win_either_half(...) -> list[MarketRecommendation]`: Predicts the probability of a team winning at least one half of the match.
-    *   `model_team_over_under(..., line: float) -> list[MarketRecommendation]`: Predicts whether a specific team's individual goal count will exceed a set limit.
-    *   `model_handicap(...) -> list[MarketRecommendation]`: Estimates the probability of a team winning after applying a virtual goal handicap (e.g., $+1$ or $-1$).
+Total picks per match: approximately 33–35.
+
+Probability blending: $P_{\text{final}} = 0.6 \cdot P_{\text{historical}} + 0.4 \cdot P_{\text{model}}$
+
+When Poisson probabilities are available from `scoring_patterns`, they are blended 55/45 with the logistic fallback.
+
+*   **`model_1x2`**: Emits 3 picks — `1 (Home Win)`, `X (Draw)`, `2 (Away Win)`. Probabilities normalised to sum to 1. Rationales include form strings, streak detection, table position, and H2H record.
+*   **`model_double_chance`**: Emits 3 picks — `1X`, `X2`, `12`. Each rationale explains the risk profile of that sub-variant.
+*   **`model_over_under`**: Emits 2 picks per line (`Over N` and `Under N`) for lines 0.5, 1.5, 2.5, 3.5 (8 total). Poisson probabilities from `scoring_patterns` used where available; venue-split GPG from `attacking_matchup` preferred over season totals.
+*   **`model_gg_ng`**: Emits 2 picks — `GG (Both Teams Score)` and `NG (Clean Sheet Expected)`. Uses Poisson BTTS probability and venue-split CS rates. NG rationale includes blank-game counts.
+*   **`model_draw_no_bet`**: Emits 2 picks — `DNB Home` and `DNB Away`. Draw probability surfaced explicitly in rationale.
+*   **`model_win_to_nil`**: Emits 4 picks using **Yes/No binary framing**:
+    - `Home Win to Nil: Yes` — home wins to nil (compound: win × CS)
+    - `Home Win to Nil: No` — away scores ≥ 1 goal regardless of result (primary value direction)
+    - `Away Win to Nil: Yes` — away wins to nil
+    - `Away Win to Nil: No` — home scores ≥ 1 goal regardless of result
+    The `No` picks are positioned as the primary value-bet direction in the rationale.
+*   **`model_win_either_half`**: Emits 2 picks — `Home Win Either Half` and `Away Win Either Half`. Uses `home_1h_win_rate`/`away_1h_win_rate` from `goal_timing`.
+*   **`model_team_over_under`**: Emits 4 picks per line (`Home Over`, `Home Under`, `Away Over`, `Away Under`) for lines 0.5 and 1.5 (8 total). Market code: `team-over-under-{line}`.
+*   **`model_handicap`**: Emits up to 3 picks — primary, conservative, and aggressive lines — using `expected_goal_diff` from `attacking_matchup`.
 
 ---
 
@@ -381,7 +394,10 @@ Evaluates prediction accuracy when new match results are imported.
         *   `over-under-X`: Checks if the sum of goals is greater than or less than the goal line.
         *   `gg-ng`: Checks if both teams scored (GG) or at least one team kept a clean sheet (NG).
         *   `draw-no-bet`: Returns `VOID` if the match ended in a draw. Otherwise, checks if the selected team won.
-        *   `win-to-nil`: Checks if the selected team won and the opposing team scored 0 goals.
+        *   `win-to-nil`: Evaluates the new Yes/No binary framing:
+            - **Yes picks**: team must win AND keep a clean sheet.
+            - **No picks**: the opposing team must score ≥ 1 goal (regardless of result). This is the primary value direction.
+            - Legacy `"Home"` / `"Away"` format also supported for backwards compatibility.
 
 ---
 
