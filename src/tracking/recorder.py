@@ -322,20 +322,56 @@ class ResultRecorder:
     def _eval_win_to_nil(
         pick: str, hs: int, as_: int, match: dict
     ) -> tuple[str, bool]:
-        """
-        Win to Nil: the picked team wins AND the opponent scores 0.
-        Pick format: 'Home' or 'Away'.
-        """
-        norm_pick = pick.lower()
-        if "home" in norm_pick:
-            norm_pick = "home"
-        elif "away" in norm_pick:
-            norm_pick = "away"
+        """Evaluate a Win to Nil pick.
 
-        home_wtn = hs > as_ and as_ == 0
-        away_wtn = as_ > hs and hs == 0
+        Supports the legacy ``'Home'`` / ``'Away'`` pick format and the new
+        binary ``Yes`` / ``No`` framing introduced in Phase A.
 
-        if norm_pick == "home":
+        New pick strings:
+        - ``"Home Win to Nil: Yes"``  — home wins and away scores 0
+        - ``"Home Win to Nil: No"``   — away scores at least 1 (regardless of result)
+        - ``"Away Win to Nil: Yes"``  — away wins and home scores 0
+        - ``"Away Win to Nil: No"``   — home scores at least 1 (regardless of result)
+
+        Args:
+            pick: The pick string as stored in the database.
+            hs: Home goals scored.
+            as_: Away goals scored.
+            match: Full match dict (unused but kept for signature parity).
+
+        Returns:
+            Tuple of (actual outcome description, whether the pick was correct).
+        """
+        lower = pick.lower()
+
+        home_wtn = hs > as_ and as_ == 0   # home wins to nil
+        away_wtn = as_ > hs and hs == 0    # away wins to nil
+
+        # ── New Yes/No binary framing ──────────────────────────────
+        if "yes" in lower or "no" in lower:
+            is_yes = "yes" in lower
+            if "home" in lower:
+                # "Home Win to Nil: Yes" wins if home_wtn; "No" wins if away scored
+                if is_yes:
+                    outcome = "Home WtN achieved" if home_wtn else "Home WtN not achieved"
+                    return outcome, home_wtn
+                else:
+                    # No wins when away scores >= 1
+                    away_scored = as_ >= 1
+                    outcome = f"Away scored {as_} goal(s)" if away_scored else "Away blanked (No loses)"
+                    return outcome, away_scored
+            else:  # away team
+                if is_yes:
+                    outcome = "Away WtN achieved" if away_wtn else "Away WtN not achieved"
+                    return outcome, away_wtn
+                else:
+                    # No wins when home scores >= 1
+                    home_scored = hs >= 1
+                    outcome = f"Home scored {hs} goal(s)" if home_scored else "Home blanked (No loses)"
+                    return outcome, home_scored
+
+        # ── Legacy "Home" / "Away" format ─────────────────────────
+        if "home" in lower:
             actual = "Home WTN" if home_wtn else ("Away WTN" if away_wtn else "No WTN")
             return actual, home_wtn
         else:

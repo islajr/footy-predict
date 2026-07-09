@@ -13,7 +13,7 @@ Command tree::
     ├── analyze
     │   ├── matchweek [--league SLUG]  Analyse next matchweek
     │   └── match "Team A vs Team B"   Deep-dive on a specific fixture
-    ├── picks [--min-confidence LVL]   High-confidence recommendations
+    ├── picks [--min-confidence LVL] [--market CODE]   All recommendations, tiered by confidence
     ├── parlay --size N                Parlay suggestion
     ├── record                         Record results for finished matches
     ├── accuracy [--market M] [--lg L] Accuracy dashboard
@@ -354,13 +354,33 @@ def analyze_match(ctx: click.Context, fixture: str) -> None:
 # ═══════════════════════════════════════════════════════════════
 
 @cli.command()
-@click.option("--min-confidence", "-c", default="HIGH",
-              type=click.Choice(["HIGH", "MEDIUM", "LOW"], case_sensitive=False),
-              help="Minimum confidence level.")
+@click.option(
+    "--min-confidence", "-c",
+    default=None,
+    type=click.Choice(["HIGH", "MEDIUM", "LOW"], case_sensitive=False),
+    help="Filter to this confidence tier and above. Defaults to showing all tiers.",
+)
 @click.option("--league", "-l", default=None, help="League slug filter.")
+@click.option(
+    "--market", "-m", default=None,
+    help="Filter to a specific market code (e.g. 'over-under-2.5', '1x2', 'win-to-nil').",
+)
 @click.pass_context
-def picks(ctx: click.Context, min_confidence: str, league: str | None) -> None:
-    """Show high-confidence picks from the latest analysis."""
+def picks(
+    ctx: click.Context,
+    min_confidence: str | None,
+    league: str | None,
+    market: str | None,
+) -> None:
+    """Show all picks from the latest analysis, tiered by confidence.
+
+    All three confidence tiers (HIGH / MEDIUM / LOW) are shown by default.
+    LOW-confidence picks are displayed last with visual de-emphasis so they
+    are visible but clearly distinguished.
+
+    Use --min-confidence to restrict to a specific tier and above.
+    Use --market to filter to a single market code.
+    """
     db = ctx.obj["db"]
 
     from src.analysis.engine import AnalysisEngine
@@ -374,17 +394,37 @@ def picks(ctx: click.Context, min_confidence: str, league: str | None) -> None:
     from_date = datetime.now().strftime("%Y-%m-%d")
     to_date = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
 
-    analyses = engine.analyze_matchweek(league_slug=league, from_date=from_date, to_date=to_date)
-    filtered = engine.get_high_confidence_picks(analyses, min_confidence=min_confidence.upper())
+    analyses = engine.analyze_matchweek(
+        league_slug=league, from_date=from_date, to_date=to_date
+    )
 
-    if not filtered:
-        console.print(f"[yellow]No {min_confidence} confidence picks found.[/yellow]")
+    # Apply market filter at the recommendation level if requested
+    if market:
+        mkt_lower = market.lower()
+        for analysis in analyses:
+            recs = getattr(analysis, "market_recommendations", [])
+            filtered_recs = [
+                r for r in recs
+                if (getattr(r, "market_code", "") or "").lower() == mkt_lower
+            ]
+            if hasattr(analysis, "market_recommendations"):
+                object.__setattr__(analysis, "market_recommendations", filtered_recs)
+
+    if not analyses:
+        console.print("[yellow]No upcoming matches found.[/yellow]")
         return
 
-    panel = formatter.format_picks_cli(filtered, min_confidence=min_confidence.upper())
+    panel = formatter.format_picks_cli(
+        analyses,
+        min_confidence=min_confidence.upper() if min_confidence else None,
+    )
     console.print(panel)
 
-    console.print(f"\n[green]✓ Found {len(filtered)} picks at {min_confidence}+ confidence[/green]")
+    tier_note = f" (≥ {min_confidence.upper()})" if min_confidence else " (all tiers)"
+    mkt_note = f" — market: {market}" if market else ""
+    console.print(
+        f"\n[green]✓ {len(analyses)} match(es) analysed{tier_note}{mkt_note}[/green]"
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
