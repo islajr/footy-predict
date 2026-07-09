@@ -36,10 +36,10 @@ graph TD
     %% Analysis & Calibration Layer
     subgraph Analysis ["Analysis & Calibration Layer"]
         Engine["Analysis Engine (Orchestrator)"]
-        Factors["12-Factor Evaluator"]
-        Markets["9-Market Prediction Models"]
+        Factors["15-Factor Evaluator (Phase A: venue_advantage, attacking_matchup, xg_quality added)"]
+        Markets["Multi-Direction Market Models (33–35 picks/match)"]
         Calibrator["Calibrator (Weight Tuning)"]
-        Recorder["Result Recorder (Outcome Settler)"]
+        Recorder["Result Recorder (Outcome Settler — Yes/No WtN aware)"]
         Tracker["Accuracy Tracker (ROI/Brier Scores)"]
     end
 
@@ -192,13 +192,14 @@ sequenceDiagram
 ```
 
 1.  **Fact-Gathering**: The `AnalysisEngine` retrieves the match metadata (teams, season, league).
-2.  **Factor Evaluation**: 12 independent analysis factors run in parallel. Each factor queries relevant segments of the database (e.g., the last 10 games for recent form, historical meetings for H2H, days since the last fixture for rest days).
+2.  **Factor Evaluation**: 15 independent analysis factors run in parallel (12 original + 3 added in Phase A: `venue_advantage`, `attacking_matchup`, `xg_quality`). Each factor queries relevant segments of the database. All factors expose standardised top-level data keys so that market models can consume factor outputs without key-path guessing.
 3.  **Weighted Score Aggregation**: The overall home advantage score ($S$) and confidence ($C$) are computed using a weighted average. Factors with low confidence contribute less to the total, preventing incomplete data from skewing the results:
-    $$S = \frac{\sum_{i=1}^{12} (s_i \cdot w_i \cdot c_i)}{\sum_{i=1}^{12} (w_i \cdot c_i)}$$
+    $$S = \frac{\sum_{i=1}^{15} (s_i \cdot w_i \cdot c_i)}{\sum_{i=1}^{15} (w_i \cdot c_i)}$$
     Where $s_i$ is the factor score (-1 to +1), $w_i$ is the factor weight, and $c_i$ is the factor confidence (0 to 1).
-4.  **Market Blending**: The aggregated factor scores and raw team season statistics are fed into the prediction models. For each market, a model-derived probability is blended with observed historical frequencies (60% weight on history, 40% on factors):
+4.  **Market Blending**: The aggregated factor scores and raw team season statistics are fed into the prediction models. Each model now emits **all pick directions** (e.g., Over AND Under, all three 1X2 outcomes). For each direction, the model-derived probability is blended with observed historical frequencies:
     $$P_{\text{final}} = 0.6 \cdot P_{\text{historical}} + 0.4 \cdot P_{\text{model}}$$
-5.  **Persistence**: The resulting recommendations are saved in the `predictions` table, making them available for accuracy tracking once the match finishes.
+    Where Poisson probabilities are pre-computed by `scoring_patterns`, they are blended 55/45 with the logistic fallback. Approximately 33–35 pick recommendations are produced per match.
+5.  **Persistence**: The resulting recommendations are saved in the `predictions` table (one row per match × market × pick), making them available for accuracy tracking once the match finishes.
 
 ### C. The Settlement & Learning Pipeline
 
@@ -233,7 +234,7 @@ sequenceDiagram
         Cal->>DB: Load all prediction_results + factor_scores
         DB-->>Cal: Datasets
         Cal->>Cal: Calculate baseline accuracy
-        loop For each of the 12 factors
+        loop For each of the 15 factors
             Cal->>Cal: Filter cases where factor had strong signal
             Cal->>Cal: Compute accuracy on that subset
             alt Factor Accuracy > Baseline
@@ -251,7 +252,7 @@ sequenceDiagram
 
 1.  **Outcome Processing**: When a fetch completes, `ResultRecorder.auto_record_all` finds completed matches in the database that have predictions but no recorded results. It evaluates the predictions against the final scorelines and records the outcomes in the `prediction_results` table.
 2.  **Calibration Check**: The `Calibrator` verifies that at least 100 predictions have been settled before running a calibration.
-3.  **Signal Analysis**: For each of the 12 factors, the calibrator identifies predictions where the factor had a strong signal (e.g., $|score| > 0.3$ and $confidence > 0.4$).
+3.  **Signal Analysis**: For each of the 15 factors, the calibrator identifies predictions where the factor had a strong signal (e.g., $|score| > 0.3$ and $confidence > 0.4$).
 4.  **Weight Adjustments**: The accuracy of the predictions in each factor's subset is compared against the overall baseline accuracy of the system.
     *   If a factor's subset was **more accurate** than the baseline, its weight is increased.
     *   If a factor's subset was **less accurate**, its weight is decreased.
