@@ -227,7 +227,7 @@ class ResultRecorder:
         if market == "handicap":
             return self._eval_handicap(prediction, pick, hs, as_)
 
-        if market == "team-over-under":
+        if market.startswith("team-over-under"):
             return self._eval_team_over_under(prediction, pick, hs, as_, match)
 
         logger.warning("Unknown market '%s' — marking as VOID", market)
