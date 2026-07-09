@@ -79,12 +79,30 @@ def cli(ctx: click.Context, verbose: bool) -> None:
 
 @cli.command()
 @click.option("--league", "-l", default=None, help="League slug (e.g. premier-league). Omit for all leagues.")
+@click.option("--stats", is_flag=True, default=False,
+              help="Also fetch per-match statistics (/fixtures/statistics) for finished matches without stats yet. "
+                   "Each match costs 1 API call. Use --stats-limit to control how many are fetched per run.")
+@click.option("--stats-limit", default=20, type=int, show_default=True,
+              help="Maximum number of finished matches to backfill with stats per league per run. "
+                   "Keep conservative (default: 20) to preserve daily API quota.")
 @click.pass_context
-def fetch(ctx: click.Context, league: str | None) -> None:
-    """Fetch latest fixtures, standings, and team stats from APIs."""
+def fetch(ctx: click.Context, league: str | None, stats: bool, stats_limit: int) -> None:
+    """Fetch latest fixtures, standings, and team stats from APIs.
+
+    Run this daily (or before running analysis) to keep the database current.
+    Use --stats once quota permits to backfill xG and in-match statistics,
+    which activates the xg_quality analysis factor.
+
+    \\b
+    Examples:
+        footy fetch                              # All leagues, no stats
+        footy fetch --league premier-league      # One league only
+        footy fetch --stats                      # Include match stats (20/league)
+        footy fetch --stats --stats-limit 5      # Conservative: 5 matches/league
+    """
     db = ctx.obj["db"]
 
-    from src.config import API_FOOTBALL, API_ONLY_LEAGUES, FDO_LEAGUES, FOOTBALL_DATA_ORG, LEAGUES
+    from src.config import API_FOOTBALL, FDO_LEAGUES, FOOTBALL_DATA_ORG, LEAGUES
     from src.fetchers.api_football import APIFootballClient
     from src.fetchers.football_data_org import FootballDataOrgClient
 
@@ -96,6 +114,7 @@ def fetch(ctx: click.Context, league: str | None) -> None:
     async def _fetch():
         total_fixtures = 0
         total_standings = 0
+        total_stats = 0
 
         api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
         fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
@@ -112,7 +131,7 @@ def fetch(ctx: click.Context, league: str | None) -> None:
                     task_id = progress.add_task(f"Fetching {lg.name}...", total=None)
 
                     try:
-                        # Use FDO for leagues it covers (fixtures + standings)
+                        # Fixtures + standings: prefer FDO for leagues it covers
                         if lg.has_fdo and fdo_key:
                             count = await fdo_client.fetch_and_store_fixtures(lg.slug)
                             total_fixtures += count
@@ -126,25 +145,39 @@ def fetch(ctx: click.Context, league: str | None) -> None:
                         else:
                             console.print(f"[yellow]⚠ No API key for {lg.name} — skipping[/yellow]")
 
-                        # Team stats from API-Football (for all leagues)
+                        # Team season stats (always from API-Football)
                         if api_key:
                             await api_client.fetch_and_store_team_stats(lg.slug)
+
+                        # Per-match statistics — opt-in via --stats flag
+                        # Each call costs 1 API request; quota guard built into method
+                        if stats and api_key:
+                            progress.update(task_id, description=f"Backfilling match stats for {lg.name}...")
+                            n_statted = await api_client.fetch_and_store_match_stats(
+                                lg.slug, limit=stats_limit
+                            )
+                            total_stats += n_statted
 
                     except Exception as e:
                         console.print(f"[red]✗ {lg.name}: {e}[/red]")
 
                     progress.update(task_id, completed=True)
 
-            # Show quota status
+            # Quota summary
             quota = api_client.get_quota_status() if api_key else {}
 
         console.print()
         console.print(f"[green]✓ Fetched {total_fixtures} fixtures, {total_standings} standings[/green]")
+        if stats:
+            console.print(f"[green]✓ Backfilled match stats for {total_stats} fixture(s)[/green]")
         if quota:
             remaining = quota.get("remaining", "?")
-            console.print(f"[dim]API-Football quota remaining: {remaining} calls[/dim]")
+            used = quota.get("used", "?")
+            limit = quota.get("limit", "?")
+            console.print(f"[dim]API-Football quota: {used}/{limit} used today, {remaining} remaining[/dim]")
 
     _run_async(_fetch())
+
 
 
 # ═══════════════════════════════════════════════════════════════
