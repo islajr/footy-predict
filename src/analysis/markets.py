@@ -1096,24 +1096,50 @@ def model_win_either_half(
         timing.data_points.get("away_1h_win_rate") if timing and timing.data_points else None
     ) or 0.30
 
-    # ── P(Win Either Half) ────────────────────────────────────────
-    # Easier than outright win — covers H1 lead OR H2 lead.
-    # Rough approximation: blended from outright probability + 1H strength
-    p_home_weh = min(0.95, p_home_win * 1.30 + home_1h_win_rate * 0.15)
-    p_away_weh = min(0.95, p_away_win * 1.30 + away_1h_win_rate * 0.15)
+    # ── WEH historical rate ───────────────────────────────────────
+    home_weh_hist = (
+        timing.data_points.get("home_weh_historical_pct") if timing and timing.data_points else None
+    )
+    away_weh_hist = (
+        timing.data_points.get("away_weh_historical_pct") if timing and timing.data_points else None
+    )
 
-    timing_note_h = (
-        f" H1 win rate: {home_1h_win_rate:.0%}." if timing and timing.confidence > 0.3 else ""
-    )
-    timing_note_a = (
-        f" H1 win rate: {away_1h_win_rate:.0%}." if timing and timing.confidence > 0.3 else ""
-    )
+    # ── P(Win Either Half) — three-way blend ──────────────────────
+    # 1. Outright quality (45%): team needs to be good enough to dominate a period
+    # 2. Historical WEH rate (35%): how often has the team actually won a half recently?
+    # 3. First-half goal timing (20%): early-goal tendency captures partial-period dominance
+    p_home_base = p_home_win * 1.35  # outright win + WEH bonus
+    p_away_base = p_away_win * 1.35
+
+    if home_weh_hist is not None:
+        p_home_weh = min(0.95, 0.45 * p_home_base + 0.35 * home_weh_hist + 0.20 * home_1h_win_rate)
+    else:
+        p_home_weh = min(0.95, p_home_base * 0.85 + home_1h_win_rate * 0.15)
+
+    if away_weh_hist is not None:
+        p_away_weh = min(0.95, 0.45 * p_away_base + 0.35 * away_weh_hist + 0.20 * away_1h_win_rate)
+    else:
+        p_away_weh = min(0.95, p_away_base * 0.85 + away_1h_win_rate * 0.15)
+
+    timing_note_h = ""
+    if timing and timing.confidence > 0.3:
+        timing_note_h = f" H1 win rate: {home_1h_win_rate:.0%}."
+        if home_weh_hist is not None:
+            timing_note_h += f" Won a half in {home_weh_hist:.0%} of recent games."
+
+    timing_note_a = ""
+    if timing and timing.confidence > 0.3:
+        timing_note_a = f" H1 win rate: {away_1h_win_rate:.0%}."
+        if away_weh_hist is not None:
+            timing_note_a += f" Won a half in {away_weh_hist:.0%} of recent games."
 
     common_stats = {
         "home_weh_prob": round(p_home_weh, 4),
         "away_weh_prob": round(p_away_weh, 4),
         "home_1h_win_rate": home_1h_win_rate,
         "away_1h_win_rate": away_1h_win_rate,
+        "home_weh_historical_pct": home_weh_hist,
+        "away_weh_historical_pct": away_weh_hist,
     }
 
     mkt = MARKETS.get("win-either-half")

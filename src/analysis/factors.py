@@ -111,6 +111,47 @@ def _safe_divide(a: float, b: float, default: float = 0.0) -> float:
     return a / b if b else default
 
 
+def _weh_rate(matches: list[dict], team_id: int, is_home: bool) -> float | None:
+    """Fraction of matches where the team won at least one half.
+
+    A team wins a half if they score more goals than the opponent in that half.
+    Uses half-time scores when available; falls back to full-time result.
+    """
+    if not matches:
+        return None
+    won_a_half = 0
+    for m in matches:
+        is_home_team = m.get("home_team_id") == team_id
+        ht_home = m.get("ht_home_score")
+        ht_away = m.get("ht_away_score")
+        ft_home = m.get("home_score", 0) or 0
+        ft_away = m.get("away_score", 0) or 0
+        if ht_home is not None and ht_away is not None:
+            # Can compute both halves exactly
+            if is_home_team:
+                h1_won = ht_home > ht_away
+                h2_team = ft_home - ht_home
+                h2_opp = ft_away - ht_away
+                h2_won = h2_team > h2_opp
+            else:
+                h1_won = ht_away > ht_home
+                h2_team = ft_away - ht_away
+                h2_opp = ft_home - ht_home
+                h2_won = h2_team > h2_opp
+            if h1_won or h2_won:
+                won_a_half += 1
+        else:
+            # HT not available — approximate from full-time result
+            if is_home_team:
+                ft_won = ft_home > ft_away
+            else:
+                ft_won = ft_away > ft_home
+            if ft_won:
+                won_a_half += 1  # always won a half if they won the match
+            # draws/losses: conservative — don't count
+    return won_a_half / len(matches) if matches else None
+
+
 def _trend_score(results: list[str]) -> float:
     """Return a trend score from a list of W/D/L strings (most recent last).
 
@@ -1070,6 +1111,10 @@ def goal_timing(
     h_timing = _timing_stats(home_matches, home_id) if home_matches else None
     a_timing = _timing_stats(away_matches, away_id) if away_matches else None
 
+    # ── WEH historical rates ──────────────────────────────────────
+    home_weh_pct = _weh_rate(home_matches, home_id, is_home=True) if home_matches else None
+    away_weh_pct = _weh_rate(away_matches, away_id, is_home=False) if away_matches else None
+
     if not h_timing and not a_timing:
         return _empty_result("goal_timing", "No half-time score data available")
 
@@ -1111,6 +1156,8 @@ def goal_timing(
             "away": a_timing or {},
             "home_1h_win_rate": h_timing.get("ht_win_rate") if h_timing else None,
             "away_1h_win_rate": a_timing.get("ht_win_rate") if a_timing else None,
+            "home_weh_historical_pct": round(home_weh_pct, 3) if home_weh_pct is not None else None,
+            "away_weh_historical_pct": round(away_weh_pct, 3) if away_weh_pct is not None else None,
         },
     )
 
