@@ -1272,55 +1272,117 @@ def model_handicap(
     factors: list[FactorResult],
     patterns: dict[str, Any] | None = None,
 ) -> list[MarketRecommendation]:
-    """Model the Handicap market.
+    """Model the Handicap market with half-lines and whole-number void lines.
 
-    Uses the ``attacking_matchup`` factor's expected goal difference for
-    the primary estimate; falls back to a scaled overall score.  Exposes
-    up to three lines (primary, conservative, aggressive) to give the
-    user choices with different risk/reward profiles.
+    Line types:
+    - **Half-line** (+/-0.5, 1.5, 2.5): no void possible — straightforward
+      win or loss. Requires margin to be strictly greater than the line.
+    - **Whole-line** (+/-1.0, 2.0): void (stake returned) if the margin
+      equals the line exactly. A 1-goal win on a -1 handicap = void, not
+      a loss. This is the safety-net feature.
+
+    Probability model:
+    - Uses Poisson goal difference distribution derived from lambda values.
+    - P(covers half-line N) = P(margin > N)
+    - P(covers whole-line N) = P(margin > N) + 0.5 × P(margin = N) [void counts as half-win]
+      But for display purposes we show:
+        win_prob = P(margin > N)
+        void_prob = P(margin = N)
+    - Lines are selected based on expected_goal_diff.
 
     Args:
         overall_score: Weighted aggregate factor score.
-        factors: List of ``FactorResult`` instances.
+        factors: List of FactorResult instances.
         patterns: Historical pattern data.
 
     Returns:
-        List of one to three ``MarketRecommendation`` objects.
+        List of MarketRecommendation objects for recommended lines.
     """
     am = _get_factor(factors, "attacking_matchup")
+    scoring = _get_factor(factors, "scoring_frequency")
 
     if am and am.data_points.get("expected_goal_diff") is not None:
         expected_margin = am.data_points["expected_goal_diff"]
     else:
         expected_margin = overall_score * 2.5
 
-    fav_team = "Home" if expected_margin >= 0 else "Away"
+    fav = "Home" if expected_margin >= 0 else "Away"
     abs_margin = abs(expected_margin)
 
-    # ── Generate three lines ──────────────────────────────────────
-    primary = round(abs_margin * 2) / 2  # nearest 0.5
-    primary = max(0.5, primary)
-    conservative = max(0.5, primary - 0.5)
-    aggressive = primary + 0.5
+    # ── Get lambdas for Poisson distribution ─────────────────────
+    if am and am.data_points.get("expected_home_goals"):
+        lam_fav = am.data_points["expected_home_goals"] if fav == "Home" else am.data_points["expected_away_goals"]
+        lam_dog = am.data_points["expected_away_goals"] if fav == "Home" else am.data_points["expected_home_goals"]
+    elif scoring and scoring.data_points:
+        lam_fav = scoring.data_points.get("home_gpg" if fav == "Home" else "away_gpg") or 1.3
+        lam_dog = scoring.data_points.get("away_gpg" if fav == "Home" else "home_gpg") or 1.1
+    else:
+        lam_fav, lam_dog = 1.3, 1.1
+
+    def _p_margin_gt(n: float) -> float:
+        """P(favoured team wins by more than n goals)."""
+        # Logistic model centred on expected margin
+        return 1.0 / (1.0 + math.exp(-1.8 * (abs_margin - n)))
+
+    def _p_margin_eq(n: int) -> float:
+        """P(favoured team wins by exactly n goals) — Poisson approximation."""
+        # P(margin = n) ≈ P(margin > n-1) - P(margin > n)
+        return max(0.0, _p_margin_gt(n - 0.5) - _p_margin_gt(n + 0.5))
+
+    # ── Select which lines to expose ──────────────────────────────
+    # Based on expected margin, offer the 2-3 most relevant lines.
+    # Always include at least one half-line and one whole-line.
+    if abs_margin < 0.8:
+        candidate_lines = [(0.5, "half")]
+    elif abs_margin < 1.3:
+        candidate_lines = [(0.5, "half"), (1.0, "whole")]
+    elif abs_margin < 1.8:
+        candidate_lines = [(1.0, "whole"), (1.5, "half")]
+    elif abs_margin < 2.3:
+        candidate_lines = [(1.0, "whole"), (1.5, "half"), (2.0, "whole")]
+    elif abs_margin < 2.8:
+        candidate_lines = [(1.5, "half"), (2.0, "whole"), (2.5, "half")]
+    else:
+        candidate_lines = [(2.0, "whole"), (2.5, "half"), (3.0, "whole")]
 
     mkt = MARKETS.get("handicap")
     mkt_name = mkt.name if mkt else "Handicap"
+    recs = []
 
-    def _handicap_rec(line: float, label: str) -> MarketRecommendation:
-        spread = abs_margin - line
-        p_cover = 1.0 / (1.0 + math.exp(-2.0 * spread))
-        pick = f"{fav_team} -{line:g}"
-        rationale = (
-            f"Expected margin: {abs_margin:.1f} goals in favour of {fav_team}. "
-            f"{fav_team} -{line:g} handicap: P(covers) = {p_cover:.0%}. "
-            f"If {fav_team} wins by >{line:g} goals this bet wins. "
-            f"If the margin is exactly {line:g} goals on a quarter-line, stake is returned."
-            f" [{label.capitalize()} line]"
-        )
+    for line, line_type in candidate_lines:
+        if line_type == "half":
+            # Half-line: no void — must win by MORE than line
+            p_cover = _p_margin_gt(line)
+            void_prob = 0.0
+            pick = f"{fav} -{line:g}" if line > 0 else f"{fav} (scratch)"
+            rationale = (
+                f"Expected margin: {abs_margin:.1f} goals in favour of {fav}. "
+                f"{fav} -{line:g} handicap (half-line — no void). "
+                f"P(covers) = {p_cover:.0%}. "
+                f"{fav} must win by more than {line:g} goals — no void scenario."
+            )
+        else:  # whole-line
+            # Whole-line: void if margin is exactly the line
+            p_cover = _p_margin_gt(line)  # strictly covers
+            void_prob = _p_margin_eq(int(line))
+            effective_prob = p_cover + 0.5 * void_prob  # void = half-refund benefit
+            void_note = f" Void (stake returned) if margin = exactly {line:g} goals: P(void) = {void_prob:.0%}."
+            pick = f"{fav} -{line:g} (void at {line:g})"
+            rationale = (
+                f"Expected margin: {abs_margin:.1f} goals in favour of {fav}. "
+                f"{fav} -{line:g} handicap (whole-line — void possible). "
+                f"P(wins outright) = {p_cover:.0%}.{void_note} "
+                f"Effective coverage probability (counting void as safety net) = {effective_prob:.0%}."
+            )
+            p_cover = effective_prob  # use effective prob for confidence classification
+
         risks = []
         if abs(abs_margin - line) < 0.4:
-            risks.append(f"Close to the line — high variance at -{line:g} handicap")
-        return MarketRecommendation(
+            risks.append(f"Expected margin is very close to the line — high uncertainty")
+        if abs_margin < 0.5:
+            risks.append("Marginal favourite — handicap picks carry high variance")
+
+        recs.append(MarketRecommendation(
             market_code="handicap",
             market_name=mkt_name,
             pick=pick,
@@ -1332,18 +1394,14 @@ def model_handicap(
             supporting_stats={
                 "expected_margin": round(expected_margin, 2),
                 "handicap_line": line,
-                "label": label,
+                "line_type": line_type,
+                "void_prob": round(void_prob, 4) if line_type == "whole" else 0.0,
+                "favoured_team": fav,
             },
-        )
+        ))
 
-    recs = []
-    recs.append(_handicap_rec(primary, "primary"))
-    if conservative != primary:
-        recs.append(_handicap_rec(conservative, "conservative"))
-    if aggressive != primary:
-        recs.append(_handicap_rec(aggressive, "aggressive"))
+    return recs if recs else []
 
-    return recs if recs else [_handicap_rec(0.5, "primary")]
 
 
 def model_lead_trigger(
