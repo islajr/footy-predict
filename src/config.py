@@ -365,9 +365,9 @@ FACTOR_WEIGHTS: dict[str, float] = {
     # Nuance cluster — real signals but secondary to form; weights reduced to
     # accommodate opponent_strength without touching the form cluster above.
     "opponent_strength":  0.045,   # Phase B: adjusts form quality by opponent rank
-    "momentum":           0.020,   # -0.005 vs Phase A
-    "goal_timing":        0.025,   # -0.010 vs Phase A
-    "scoring_patterns":   0.010,   # -0.010 vs Phase A
+    "momentum":           0.040,   # Phase C: +0.020 vs Phase B (stronger recency signal)
+    "goal_timing":        0.015,   # Phase C: -0.010 vs Phase B
+    "scoring_patterns":   0.000,   # Phase C: zeroed — subsumed by scoring_frequency
     "xg_quality":         0.010,   # unchanged; grows as match_stats data populates
     "rest_days":          0.005,   # local tool — manual syncs mean less urgency
     "rivalry":            0.005,   # unchanged at floor weight
