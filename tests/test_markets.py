@@ -21,6 +21,7 @@ from src.analysis.markets import (
     model_win_either_half,
     model_team_over_under,
     model_handicap,
+    model_lead_trigger,
     evaluate_all_markets,
 )
 
@@ -314,3 +315,206 @@ def test_evaluate_all_markets_sorted_confidence(sample_factors):
     order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
     ranks = [order.get(r.confidence, 3) for r in recs]
     assert ranks == sorted(ranks), "Output is not sorted by confidence tier"
+
+
+# ─── Phase C Tests ─────────────────────────────────────────────────────────────────────────
+
+# ── Venue-bias correction (Track 1) ───────────────────────────────────────
+
+def test_venue_bias_blend_over_under():
+    """With home_gpg=2.0 and home_home_gpg=1.0, blended GPG should be ~1.7."""
+    factors = [
+        FactorResult(
+            name="scoring_frequency",
+            score=0.5,
+            confidence=0.8,
+            rationale="scoring",
+            data_points={
+                "home_gpg": 2.0,       # overall form
+                "home_home_gpg": 1.0,  # venue-specific
+                "away_gpg": 1.5,
+                "away_away_gpg": 1.5,
+            },
+        ),
+    ]
+    # Blended home: 0.7 * 2.0 + 0.3 * 1.0 = 1.4 + 0.3 = 1.7
+    # Previously would have been 1.0 (venue-first logic)
+    recs = model_over_under(0.5, factors, line=2.5)
+    assert len(recs) == 2
+    # The blended expected_total should be 1.7 + 1.5 = 3.2
+    # This means P(Over 2.5) should be > 0.5 (expected total > line)
+    over_rec = next(r for r in recs if r.pick == "Over 2.5")
+    assert over_rec.probability > 0.5, (
+        f"Expected P(Over 2.5) > 0.5 with total 3.2 goals, got {over_rec.probability}"
+    )
+
+
+def test_venue_bias_blend_team_over_under():
+    """Team O/U: overall form primary, venue-split is modifier at 30%."""
+    factors = [
+        FactorResult(
+            name="scoring_frequency",
+            score=0.5,
+            confidence=0.8,
+            rationale="scoring",
+            data_points={
+                "home_gpg": 2.0,       # overall form (primary)
+                "home_home_gpg": 0.5,  # low venue-specific
+                "away_gpg": 1.1,
+            },
+        ),
+    ]
+    # Blended: 0.7 * 2.0 + 0.3 * 0.5 = 1.4 + 0.15 = 1.55
+    # Not 0.5 (venue-first would use 0.5, which is wrong)
+    recs = model_team_over_under(0.5, factors, line=0.5)
+    probs = {r.pick: r.probability for r in recs}
+    # P(Home Over 0.5) with GPG ~1.55 should be well above 0.5
+    assert probs["Home Over 0.5"] > 0.8, (
+        f"Expected P(Home Over 0.5) > 0.8 with blended GPG ~1.55, got {probs['Home Over 0.5']}"
+    )
+
+
+# ── Lead-trigger model 1UP/2UP (Track 4) ───────────────────────────────────
+
+def test_model_lead_trigger_emits_four(sample_factors):
+    """Lead trigger model must emit exactly 4 picks (Home/Away x 1UP/2UP)."""
+    recs = model_lead_trigger(0.5, sample_factors)
+    assert len(recs) == 4
+    picks = {r.pick for r in recs}
+    assert "Home 1X2 - 1UP" in picks
+    assert "Away 1X2 - 1UP" in picks
+    assert "Home 1X2 - 2UP" in picks
+    assert "Away 1X2 - 2UP" in picks
+
+
+def test_model_lead_trigger_market_code(sample_factors):
+    """All lead-trigger picks should use market code '1x2'."""
+    recs = model_lead_trigger(0.5, sample_factors)
+    assert all(r.market_code == "1x2" for r in recs)
+
+
+def test_model_lead_trigger_1up_gt_2up(sample_factors):
+    """P(1UP) must be strictly greater than P(2UP) for both teams."""
+    recs = model_lead_trigger(0.5, sample_factors)
+    probs = {r.pick: r.probability for r in recs}
+    assert probs["Home 1X2 - 1UP"] > probs["Home 1X2 - 2UP"], (
+        f"Expected Home 1UP ({probs['Home 1X2 - 1UP']:.3f}) > Home 2UP ({probs['Home 1X2 - 2UP']:.3f})"
+    )
+    assert probs["Away 1X2 - 1UP"] > probs["Away 1X2 - 2UP"], (
+        f"Expected Away 1UP ({probs['Away 1X2 - 1UP']:.3f}) > Away 2UP ({probs['Away 1X2 - 2UP']:.3f})"
+    )
+
+
+def test_model_lead_trigger_1up_gte_outright_win(sample_factors):
+    """P(Home 1UP) >= P(Home outright win) — 1UP is less demanding."""
+    lead_recs = model_lead_trigger(0.5, sample_factors)
+    win_recs = model_1x2(0.5, sample_factors)
+    p_home_1up = next(r.probability for r in lead_recs if r.pick == "Home 1X2 - 1UP")
+    p_home_win = next(r.probability for r in win_recs if r.pick == "1 (Home Win)")
+    assert p_home_1up >= p_home_win, (
+        f"Expected P(Home 1UP)={p_home_1up:.3f} >= P(Home win)={p_home_win:.3f}"
+    )
+
+
+def test_model_lead_trigger_probs_valid(sample_factors):
+    """All lead-trigger probabilities should be in (0, 1]."""
+    recs = model_lead_trigger(0.5, sample_factors)
+    for r in recs:
+        assert 0 < r.probability <= 1.0, f"Invalid probability {r.probability} for {r.pick}"
+
+
+# ── Handicap half-line and void model (Track 5) ───────────────────────────
+
+def test_handicap_half_line_no_void(sample_factors):
+    """Half-line picks must have void_prob=0.0 in supporting_stats."""
+    recs = model_handicap(0.5, sample_factors)
+    half_line_recs = [r for r in recs if r.supporting_stats.get("line_type") == "half"]
+    assert half_line_recs, "Expected at least one half-line recommendation"
+    for r in half_line_recs:
+        assert r.supporting_stats["void_prob"] == 0.0, (
+            f"Half-line {r.pick} should have void_prob=0.0, got {r.supporting_stats['void_prob']}"
+        )
+
+
+def test_handicap_whole_line_has_void(sample_factors):
+    """Whole-line picks must have void_prob > 0.0 in supporting_stats."""
+    # Use a score that yields abs_margin in [1.3, 2.3) so we get a whole-line rec
+    factors_high = [
+        FactorResult(
+            name="attacking_matchup",
+            score=0.6,
+            confidence=0.8,
+            rationale="",
+            data_points={"expected_goal_diff": 1.5},  # abs_margin=1.5, in [1.3, 1.8) -> [(1.0, whole), (1.5, half)]
+        ),
+    ]
+    recs = model_handicap(0.6, factors_high)
+    whole_line_recs = [r for r in recs if r.supporting_stats.get("line_type") == "whole"]
+    assert whole_line_recs, "Expected at least one whole-line recommendation when abs_margin=1.5"
+    for r in whole_line_recs:
+        assert r.supporting_stats["void_prob"] > 0.0, (
+            f"Whole-line {r.pick} should have void_prob > 0.0"
+        )
+
+
+def test_handicap_line_type_small_margin():
+    """For expected margin < 0.8, model should recommend the 0.5 half-line only."""
+    factors = [
+        FactorResult(
+            name="attacking_matchup",
+            score=0.1,
+            confidence=0.7,
+            rationale="",
+            data_points={"expected_goal_diff": 0.5},  # abs_margin < 0.8
+        ),
+    ]
+    recs = model_handicap(0.1, factors)
+    assert len(recs) == 1
+    assert recs[0].supporting_stats["handicap_line"] == 0.5
+    assert recs[0].supporting_stats["line_type"] == "half"
+
+
+def test_handicap_line_type_medium_margin():
+    """For expected margin in [1.3, 1.8), recommend (1.0 whole, 1.5 half)."""
+    factors = [
+        FactorResult(
+            name="attacking_matchup",
+            score=0.6,
+            confidence=0.8,
+            rationale="",
+            data_points={"expected_goal_diff": 1.5},
+        ),
+    ]
+    recs = model_handicap(0.6, factors)
+    lines = {r.supporting_stats["handicap_line"]: r.supporting_stats["line_type"] for r in recs}
+    assert 1.0 in lines, f"Expected 1.0 whole-line to be present. Got: {lines}"
+    assert lines[1.0] == "whole"
+    assert 1.5 in lines, f"Expected 1.5 half-line to be present. Got: {lines}"
+    assert lines[1.5] == "half"
+
+
+def test_handicap_all_probabilities_valid(sample_factors):
+    """All handicap probabilities must be in (0, 1]."""
+    recs = model_handicap(0.5, sample_factors)
+    for r in recs:
+        assert 0 < r.probability <= 1.0, f"Invalid probability {r.probability} for {r.pick}"
+
+
+# ── Lead-trigger in evaluate_all_markets integration ────────────────────────
+
+def test_evaluate_all_markets_includes_lead_trigger(sample_factors):
+    """evaluate_all_markets should include 1X2 lead-trigger picks."""
+    recs = evaluate_all_markets(0.5, sample_factors)
+    picks = {r.pick for r in recs}
+    assert "Home 1X2 - 1UP" in picks, "Missing Home 1X2 - 1UP from evaluate_all_markets"
+    assert "Away 1X2 - 1UP" in picks, "Missing Away 1X2 - 1UP from evaluate_all_markets"
+    assert "Home 1X2 - 2UP" in picks, "Missing Home 1X2 - 2UP from evaluate_all_markets"
+    assert "Away 1X2 - 2UP" in picks, "Missing Away 1X2 - 2UP from evaluate_all_markets"
+
+
+def test_evaluate_all_markets_count_phase_c(sample_factors):
+    """With lead-trigger picks added, total count should be >= 37."""
+    recs = evaluate_all_markets(0.5, sample_factors)
+    # 1x2(3) + lead_trigger(4) + DC(3) + O/U x4 x2(8) + GG/NG(2) + DNB(2) + WtN(4) + WEH(2)
+    # + TeamOU x2 x4(8) + Handicap(1-3) = 37-39
+    assert len(recs) >= 37, f"Expected >= 37 picks with lead-trigger, got {len(recs)}"
