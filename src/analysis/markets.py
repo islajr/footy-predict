@@ -521,16 +521,15 @@ def model_over_under(
         home_gpg = am.data_points.get("expected_home_goals", 1.3)
         away_gpg = am.data_points.get("expected_away_goals", 1.1)
     elif scoring and scoring.data_points:
-        home_gpg = (
-            scoring.data_points.get("home_home_gpg")
-            or scoring.data_points.get("home_gpg")
-            or 1.3
-        )
-        away_gpg = (
-            scoring.data_points.get("away_away_gpg")
-            or scoring.data_points.get("away_gpg")
-            or 1.1
-        )
+        # Overall recent form is the primary signal; venue split modifies by 30%
+        home_base = scoring.data_points.get("home_gpg") or 1.3
+        home_venue = scoring.data_points.get("home_home_gpg")
+        home_gpg = home_base if home_venue is None else (0.7 * home_base + 0.3 * home_venue)
+
+        away_base = scoring.data_points.get("away_gpg") or 1.1
+        away_venue = scoring.data_points.get("away_away_gpg")
+        away_gpg = away_base if away_venue is None else (0.7 * away_base + 0.3 * away_venue)
+
         expected_total = home_gpg + away_gpg
     else:
         home_gpg, away_gpg, expected_total = 1.3, 1.1, 2.4
@@ -664,16 +663,18 @@ def model_gg_ng(
 
     # ── Clean-sheet rates (venue-split preferred) ─────────────────
     def _cs(side: str) -> float:
-        """Resolve clean-sheet rate, venue-split first, then nested dict."""
-        if defence and defence.data_points:
-            vk = f"home_cs_rate_home" if side == "home" else "away_cs_rate_away"
-            fk = f"home_cs_rate" if side == "home" else "away_cs_rate"
-            v = defence.data_points.get(vk) or defence.data_points.get(fk)
-            if v is not None:
-                return v
-            nested = defence.data_points.get(side, {})
-            return nested.get("clean_sheet_rate", 0.25 if side == "home" else 0.15)
-        return 0.25 if side == "home" else 0.15
+        """Resolve clean-sheet rate: overall form primary (70%), venue modifier (30%)."""
+        default = 0.25 if side == "home" else 0.15
+        if not (defence and defence.data_points):
+            return default
+        dp = defence.data_points
+        fk = "home_cs_rate" if side == "home" else "away_cs_rate"
+        vk = "home_cs_rate_home" if side == "home" else "away_cs_rate_away"
+        base = dp.get(fk) or dp.get(side, {}).get("clean_sheet_rate", default)
+        venue = dp.get(vk)
+        if venue is None:
+            return base
+        return 0.7 * base + 0.3 * venue
 
     home_cs = _cs("home")
     away_cs = _cs("away")
@@ -685,10 +686,28 @@ def model_gg_ng(
     away_blanks = None
 
     if scoring and scoring.data_points:
-        home_scored_pct = scoring.data_points.get("home_scored_in_pct")
-        away_scored_pct = scoring.data_points.get("away_scored_in_pct")
-        home_blanks = scoring.data_points.get("home_blank_games")
-        away_blanks = scoring.data_points.get("away_blank_games")
+        dp_s = scoring.data_points
+        # Overall scored_pct is primary; venue-specific is a 30% modifier
+        home_base_sp = dp_s.get("home", {}).get("scored_pct") if isinstance(dp_s.get("home"), dict) else None
+        home_venue_sp = dp_s.get("home_scored_in_pct")
+        if home_base_sp is not None and home_venue_sp is not None:
+            home_scored_pct = 0.7 * home_base_sp + 0.3 * home_venue_sp
+        elif home_venue_sp is not None:
+            home_scored_pct = home_venue_sp
+        else:
+            home_scored_pct = home_base_sp
+
+        away_base_sp = dp_s.get("away", {}).get("scored_pct") if isinstance(dp_s.get("away"), dict) else None
+        away_venue_sp = dp_s.get("away_scored_in_pct")
+        if away_base_sp is not None and away_venue_sp is not None:
+            away_scored_pct = 0.7 * away_base_sp + 0.3 * away_venue_sp
+        elif away_venue_sp is not None:
+            away_scored_pct = away_venue_sp
+        else:
+            away_scored_pct = away_base_sp
+
+        home_blanks = dp_s.get("home_blank_games")
+        away_blanks = dp_s.get("away_blank_games")
 
     # ── Poisson BTTS (preferred) ──────────────────────────────────
     poisson_btts = patterns.get("poisson_btts") if patterns else None
@@ -892,17 +911,18 @@ def model_win_to_nil(
 
     # ── CS rates (venue-split preferred) ─────────────────────────
     def _get_cs(side: str) -> float:
-        vk = "home_cs_rate_home" if side == "home" else "away_cs_rate_away"
+        """Clean-sheet rate: overall form primary (70%), venue modifier (30%)."""
         fk = "home_cs_rate" if side == "home" else "away_cs_rate"
+        vk = "home_cs_rate_home" if side == "home" else "away_cs_rate_away"
         default = 0.25 if side == "home" else 0.15
-        if patterns and patterns.get(f"{side}_cs_rate_{'home' if side=='home' else 'away'}"):
-            return patterns[f"{side}_cs_rate_{'home' if side=='home' else 'away'}"]
-        if defence and defence.data_points:
-            v = defence.data_points.get(vk) or defence.data_points.get(fk)
-            if v is not None:
-                return v
-            return defence.data_points.get(side, {}).get("clean_sheet_rate", default)
-        return default
+        if not (defence and defence.data_points):
+            return default
+        dp = defence.data_points
+        base = dp.get(fk) or dp.get(side, {}).get("clean_sheet_rate", default)
+        venue = dp.get(vk)
+        if venue is None:
+            return base
+        return 0.7 * base + 0.3 * venue
 
     home_cs = _get_cs("home")
     away_cs = _get_cs("away")
@@ -1162,16 +1182,14 @@ def model_team_over_under(
         home_gpg = am.data_points["expected_home_goals"]
         away_gpg = am.data_points["expected_away_goals"]
     elif scoring and scoring.data_points:
-        home_gpg = (
-            scoring.data_points.get("home_home_gpg")
-            or scoring.data_points.get("home_gpg")
-            or 1.3
-        )
-        away_gpg = (
-            scoring.data_points.get("away_away_gpg")
-            or scoring.data_points.get("away_gpg")
-            or 1.1
-        )
+        # Overall recent form primary (70%); venue-specific a 30% modifier
+        home_base = scoring.data_points.get("home_gpg") or 1.3
+        home_venue = scoring.data_points.get("home_home_gpg")
+        home_gpg = home_base if home_venue is None else (0.7 * home_base + 0.3 * home_venue)
+
+        away_base = scoring.data_points.get("away_gpg") or 1.1
+        away_venue = scoring.data_points.get("away_away_gpg")
+        away_gpg = away_base if away_venue is None else (0.7 * away_base + 0.3 * away_venue)
     else:
         home_gpg, away_gpg = 1.3, 1.1
 
@@ -1203,7 +1221,7 @@ def model_team_over_under(
             confidence=_classify_confidence(prob),
             implied_odds=_implied_odds(prob),
             rationale=(
-                f"{team} team averaging {gpg:.2f} GPG at their respective venue. "
+                f"{team} team expected {gpg:.2f} GPG (overall form, venue-adjusted). "
                 f"P({direction} {line_str}) = {prob:.0%}."
             ),
             risk_factors=[],
