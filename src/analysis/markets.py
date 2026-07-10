@@ -1346,6 +1346,204 @@ def model_handicap(
     return recs if recs else [_handicap_rec(0.5, "primary")]
 
 
+def model_lead_trigger(
+    overall_score: float,
+    factors: list[FactorResult],
+    patterns: dict[str, Any] | None = None,
+) -> list[MarketRecommendation]:
+    """Model 1X2 - 1UP and 1X2 - 2UP lead-trigger sub-markets.
+
+    These are Sportybet sub-picks within the 1X2 market:
+    - 1UP: bet settles as WIN the moment the selected team goes 1 goal ahead
+      at any point during the match, regardless of final score.
+    - 2UP: same but requires the team to go 2 goals ahead at any point.
+
+    Key insight: these decouple from the final result. A team that leads 2-0
+    but draws 2-2 still triggers 2UP. A team that leads 1-0 but loses 1-2
+    still triggers 1UP.
+
+    Probability model:
+    - P(1UP) ≈ P(team scores first) + P(team recovers to lead after going behind)
+      First-goal probability = λ_home / (λ_home + λ_away)
+      Recovery adjustment: +8% for the home team (home advantage in comebacks)
+    - P(2UP) ≈ P(1UP) × P(team scores next goal given they are level or ahead)
+      Conditional next-goal ≈ λ_team / (λ_home + λ_away)
+      2UP is strictly easier than winning outright (can still draw/lose after 2-0)
+
+    Args:
+        overall_score: Weighted aggregate factor score.
+        factors: List of FactorResult instances.
+        patterns: Historical pattern data.
+
+    Returns:
+        List of four MarketRecommendation objects (Home/Away × 1UP/2UP).
+    """
+    scoring = _get_factor(factors, "scoring_frequency")
+    am = _get_factor(factors, "attacking_matchup")
+    timing = _get_factor(factors, "goal_timing")
+
+    # ── Expected goals per team ───────────────────────────────────
+    if am and am.data_points.get("expected_home_goals"):
+        lam_home = max(0.1, am.data_points["expected_home_goals"])
+        lam_away = max(0.1, am.data_points["expected_away_goals"])
+    elif scoring and scoring.data_points:
+        home_base = scoring.data_points.get("home_gpg") or 1.3
+        home_venue = scoring.data_points.get("home_home_gpg")
+        lam_home = max(0.1, home_base if home_venue is None else (0.7 * home_base + 0.3 * home_venue))
+        away_base = scoring.data_points.get("away_gpg") or 1.1
+        away_venue = scoring.data_points.get("away_away_gpg")
+        lam_away = max(0.1, away_base if away_venue is None else (0.7 * away_base + 0.3 * away_venue))
+    else:
+        lam_home, lam_away = 1.3, 1.1
+
+    total_rate = lam_home + lam_away
+
+    # ── First-goal probability ─────────────────────────────────────
+    # Poisson process: P(home scores first) = lam_home / (lam_home + lam_away)
+    p_home_first = lam_home / total_rate
+    p_away_first = lam_away / total_rate
+
+    # ── Goal timing adjustment ─────────────────────────────────────
+    # Teams with high first-half win rates score early → higher 1UP probability
+    home_h1_rate = (
+        timing.data_points.get("home_1h_win_rate") if timing and timing.data_points else None
+    ) or 0.40
+    away_h1_rate = (
+        timing.data_points.get("away_1h_win_rate") if timing and timing.data_points else None
+    ) or 0.30
+
+    # ── P(1UP) ────────────────────────────────────────────────────
+    # Blend: first-goal probability (60%) + timing-adjusted quality (40%)
+    # A team going ahead at any point = first-goal OR comeback lead
+    # Comeback probability ≈ 15% for home, 10% for away (structural home advantage)
+    p_home_comeback_lead = 0.15  # approx P(home goes behind then leads)
+    p_away_comeback_lead = 0.10  # approx P(away goes behind then leads)
+
+    p_home_1up = min(0.97, (
+        0.60 * p_home_first
+        + 0.25 * home_h1_rate
+        + 0.15 * (lam_home / max(lam_home, 1.0))
+    ) + p_home_comeback_lead * (1 - p_home_first))
+
+    p_away_1up = min(0.97, (
+        0.60 * p_away_first
+        + 0.25 * away_h1_rate
+        + 0.15 * (lam_away / max(lam_away, 1.0))
+    ) + p_away_comeback_lead * (1 - p_away_first))
+
+    # ── P(2UP) ────────────────────────────────────────────────────
+    # Conditional: given they went 1 ahead, what's P(they then score again before equalised)?
+    # 2UP bonus: +12-15% vs outright win (decoupled from final score)
+    p_home_win, _, p_away_win = _1x2_base_probs(overall_score, patterns)
+
+    # Sequential Poisson: P(home scores twice before away scores twice)
+    # Approx: (lam_home / total_rate)^2 gives too conservative; actual 2UP > this
+    # because the team can trail, draw, then retake a 2-goal lead
+    p_home_seq = (lam_home / total_rate) ** 1.5  # 1.5 exponent: less conservative
+    p_away_seq = (lam_away / total_rate) ** 1.5
+
+    p_home_2up = min(0.97, max(p_home_win + 0.10, p_home_seq * 1.2))
+    p_away_2up = min(0.97, max(p_away_win + 0.08, p_away_seq * 1.2))
+
+    # Enforce: 1UP > 2UP always (1UP triggers earlier)
+    p_home_2up = min(p_home_2up, p_home_1up - 0.03)
+    p_away_2up = min(p_away_2up, p_away_1up - 0.03)
+    # Enforce: 1UP and 2UP > outright win probability (key advantage of these markets)
+    p_home_1up = max(p_home_1up, p_home_win + 0.05)
+    p_away_1up = max(p_away_1up, p_away_win + 0.03)
+    p_home_2up = max(p_home_2up, p_home_win + 0.02)
+    p_away_2up = max(p_away_2up, p_away_win)
+    # Final clamp
+    p_home_1up = min(0.97, p_home_1up)
+    p_away_1up = min(0.97, p_away_1up)
+    p_home_2up = min(0.97, p_home_2up)
+    p_away_2up = min(0.97, p_away_2up)
+
+    mkt = MARKETS.get("1x2")
+    mkt_name = mkt.name if mkt else "Match Result"
+
+    stats = {
+        "lambda_home": round(lam_home, 2),
+        "lambda_away": round(lam_away, 2),
+        "p_home_first_goal": round(p_home_first, 4),
+        "p_away_first_goal": round(p_away_first, 4),
+        "home_h1_win_rate": round(home_h1_rate, 3),
+        "away_h1_win_rate": round(away_h1_rate, 3),
+    }
+
+    return [
+        MarketRecommendation(
+            market_code="1x2",
+            market_name=mkt_name,
+            pick="Home 1X2 - 1UP",
+            probability=round(p_home_1up, 4),
+            confidence=_classify_confidence(p_home_1up),
+            implied_odds=_implied_odds(p_home_1up),
+            rationale=(
+                f"P(Home leads at any point) = {p_home_1up:.0%}. "
+                f"Expected {lam_home:.1f} home goals vs {lam_away:.1f} away goals. "
+                f"Home first-goal probability: {p_home_first:.0%}. "
+                "Bet settles as WIN the moment home team goes 1 goal ahead — "
+                "does NOT require holding the lead until full time."
+            ),
+            risk_factors=[
+                "Home team may never take the lead even if they win on aggregate",
+                "Low-scoring matches reduce first-goal probabilities",
+            ],
+            supporting_stats=stats,
+        ),
+        MarketRecommendation(
+            market_code="1x2",
+            market_name=mkt_name,
+            pick="Away 1X2 - 1UP",
+            probability=round(p_away_1up, 4),
+            confidence=_classify_confidence(p_away_1up),
+            implied_odds=_implied_odds(p_away_1up),
+            rationale=(
+                f"P(Away leads at any point) = {p_away_1up:.0%}. "
+                f"Away first-goal probability: {p_away_first:.0%}. "
+                "Bet settles as WIN the moment away team goes 1 goal ahead."
+            ),
+            risk_factors=["Away team may never lead, even in draws or away wins on aggregate"],
+            supporting_stats=stats,
+        ),
+        MarketRecommendation(
+            market_code="1x2",
+            market_name=mkt_name,
+            pick="Home 1X2 - 2UP",
+            probability=round(p_home_2up, 4),
+            confidence=_classify_confidence(p_home_2up),
+            implied_odds=_implied_odds(p_home_2up),
+            rationale=(
+                f"P(Home leads by 2 at any point) = {p_home_2up:.0%}. "
+                f"Expected {lam_home:.1f} home goals vs {lam_away:.1f} away goals. "
+                "Bet settles as WIN once home team goes 2 goals ahead at any moment "
+                "— the lead does not need to be maintained. "
+                "Better odds than 1UP but still safer than an outright win."
+            ),
+            risk_factors=[
+                "Match may stay close — team may lead by only 1 at most",
+                "Low-scoring favourites unlikely to build a 2-goal lead",
+            ],
+            supporting_stats=stats,
+        ),
+        MarketRecommendation(
+            market_code="1x2",
+            market_name=mkt_name,
+            pick="Away 1X2 - 2UP",
+            probability=round(p_away_2up, 4),
+            confidence=_classify_confidence(p_away_2up),
+            implied_odds=_implied_odds(p_away_2up),
+            rationale=(
+                f"P(Away leads by 2 at any point) = {p_away_2up:.0%}. "
+                "Bet settles as WIN once away team goes 2 goals ahead — regardless of final score."
+            ),
+            risk_factors=["Away team unlikely to build a 2-goal lead against a strong home side"],
+            supporting_stats=stats,
+        ),
+    ]
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Orchestrator
 # ═══════════════════════════════════════════════════════════════
@@ -1376,6 +1574,11 @@ def evaluate_all_markets(
         recommendations.extend(model_1x2(overall_score, factors, patterns))
     except Exception as e:
         logger.warning("1X2 model failed: %s", e)
+
+    try:
+        recommendations.extend(model_lead_trigger(overall_score, factors, patterns))
+    except Exception as e:
+        logger.warning("Lead trigger (1UP/2UP) model failed: %s", e)
 
     try:
         recommendations.extend(model_double_chance(overall_score, factors, patterns))
