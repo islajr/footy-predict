@@ -9,9 +9,9 @@
   "attacking_matchup": 0.06,
   "venue_advantage": 0.055,
   "opponent_strength": 0.045,
-  "momentum": 0.02,
-  "goal_timing": 0.025,
-  "scoring_patterns": 0.01,
+  "momentum": 0.04,
+  "goal_timing": 0.015,
+  "scoring_patterns": 0.0,
   "xg_quality": 0.01,
   "rest_days": 0.005,
   "rivalry": 0.005

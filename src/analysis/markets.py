@@ -1671,7 +1671,7 @@ def evaluate_all_markets(
     except Exception as e:
         logger.warning("Win Either Half model failed: %s", e)
 
-    for line in [0.5, 1.5]:
+    for line in [0.5, 1.5, 2.5]:
         try:
             recommendations.extend(
                 model_team_over_under(overall_score, factors, patterns, line=line)

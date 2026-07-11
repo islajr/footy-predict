@@ -237,14 +237,28 @@ class ResultRecorder:
 
     @staticmethod
     def _eval_1x2(pick: str, hs: int, as_: int) -> tuple[str, bool]:
-        """Full-time result: '1' (Home), 'X' (Draw), '2' (Away)."""
-        norm_pick = pick.upper()
-        if norm_pick.startswith("1"):
+        """Full-time result: '1' (Home), 'X' (Draw), '2' (Away).
+
+        1UP / 2UP sub-picks require in-play lead data (did the team lead by
+        1 or 2 goals at any moment?) which cannot be determined from the final
+        score alone.  These are returned as VOID so they do not pollute the
+        accuracy dashboard with unresolvable false failures.
+        """
+        pick_upper = pick.upper()
+
+        # Detect 1UP / 2UP lead-trigger picks — cannot be settled from FT score
+        if "1UP" in pick_upper or "2UP" in pick_upper:
+            return (f"VOID (requires in-play data: {pick})", True)
+
+        # Normalise standard outright picks
+        if "HOME" in pick_upper or pick_upper.startswith("1"):
             norm_pick = "1"
-        elif norm_pick.startswith("X"):
+        elif "DRAW" in pick_upper or pick_upper.startswith("X"):
             norm_pick = "X"
-        elif norm_pick.startswith("2"):
+        elif "AWAY" in pick_upper or pick_upper.startswith("2"):
             norm_pick = "2"
+        else:
+            return (f"VOID (unknown pick: {pick})", True)
 
         if hs > as_:
             actual = "1"
