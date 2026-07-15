@@ -1860,14 +1860,25 @@ select option {
         padding-bottom: calc(60px + var(--space-6));
     }
 
-    /* Header compact */
     .app-header {
         padding: 0 var(--space-4);
         height: 48px;
+        gap: var(--space-2);
+        overflow: hidden;
     }
 
     .header-title {
         font-size: var(--text-md);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .header-actions {
+        flex-shrink: 0;
+        gap: var(--space-2);
     }
 
     /* Quota badge compact on mobile */
@@ -1876,9 +1887,19 @@ select option {
         padding: var(--space-1) var(--space-2);
     }
 
-    /* Theme toggle — icon only on mobile */
+    /* Theme toggle — shrink to icon-only on mobile */
+    .theme-toggle-btn {
+        padding: var(--space-1);
+        width: 32px;
+        height: 32px;
+        justify-content: center;
+        flex-shrink: 0;
+    }
     .theme-toggle-btn span {
         display: none;
+    }
+    .theme-toggle-btn .theme-icon {
+        display: flex !important;
     }
 
     /* All grids to single column on mobile */

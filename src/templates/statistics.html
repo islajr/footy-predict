@@ -69,12 +69,12 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for mk, stats in dashboard.by_market.items() %}
+                    {% for row in dashboard.by_market %}
                     <tr>
-                        <td class="text-sm text-bold">{{ mk }}</td>
-                        <td class="text-sm">{{ stats.total }}</td>
-                        <td class="text-sm text-bold" style="text-align: right; color: var(--color-green);">{{ stats.correct }}</td>
-                        <td class="text-sm text-bold" style="text-align: right;">{{ "%.1f"|format(stats.accuracy_pct) }}%</td>
+                        <td class="text-sm text-bold">{{ row.market }}</td>
+                        <td class="text-sm">{{ row.total }}</td>
+                        <td class="text-sm text-bold" style="text-align: right; color: var(--color-green);">{{ row.correct }}</td>
+                        <td class="text-sm text-bold" style="text-align: right;">{{ "%.1f"|format(row.accuracy_pct) }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -100,12 +100,12 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for lg, stats in dashboard.by_league.items() %}
+                    {% for row in dashboard.by_league %}
                     <tr>
-                        <td class="text-sm text-bold">{{ lg }}</td>
-                        <td class="text-sm">{{ stats.total }}</td>
-                        <td class="text-sm text-bold" style="text-align: right; color: var(--color-green);">{{ stats.correct }}</td>
-                        <td class="text-sm text-bold" style="text-align: right;">{{ "%.1f"|format(stats.accuracy_pct) }}%</td>
+                        <td class="text-sm text-bold">{{ row.league }}</td>
+                        <td class="text-sm">{{ row.total }}</td>
+                        <td class="text-sm text-bold" style="text-align: right; color: var(--color-green);">{{ row.correct }}</td>
+                        <td class="text-sm text-bold" style="text-align: right;">{{ "%.1f"|format(row.accuracy_pct) }}%</td>
                     </tr>
                     {% endfor %}
                 </tbody>

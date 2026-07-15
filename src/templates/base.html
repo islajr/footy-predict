@@ -15,6 +15,20 @@
             from { transform: translateY(20px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
         }
+        @media (max-width: 768px) {
+            .freshness-banner-urgent {
+                padding: var(--space-3) var(--space-4);
+                font-size: var(--text-sm);
+            }
+            .freshness-banner-urgent strong {
+                font-size: var(--text-md);
+                margin-bottom: 2px;
+            }
+            .freshness-banner-urgent a {
+                padding: var(--space-1) var(--space-3);
+                font-size: var(--text-sm);
+            }
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -104,6 +118,7 @@
 
                     <!-- Theme Toggle Switch -->
                     <button onclick="toggleTheme()" class="theme-toggle-btn" title="Toggle Light/Dark Theme">
+                        <svg class="theme-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none; flex-shrink:0;"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
                         <span>Toggle Theme</span>
                     </button>
                 </div>
