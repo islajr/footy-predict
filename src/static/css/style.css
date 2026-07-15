@@ -387,6 +387,11 @@ a:focus-visible {
     padding: 0 var(--space-8);
     height: var(--header-height);
     flex-shrink: 0;
+    /* Layout — was previously on inline style */
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
 }
 
 /* Page content area below the header */
@@ -406,12 +411,30 @@ a:focus-visible {
     font-weight: 700;
     letter-spacing: -0.3px;
     margin-bottom: 0;
+    /* Allow it to shrink if actions need space */
+    min-width: 0;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .header-actions {
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    flex-shrink: 0;
+}
+
+/* Theme icon hidden on desktop — shown on mobile via media query */
+.theme-icon {
+    display: none;
+    flex-shrink: 0;
+}
+
+/* Quota: full text on desktop, short on mobile */
+.quota-short {
+    display: none;
 }
 
 /* ─── Material Elements (Elevation) ─────────────────────────── */
@@ -1768,34 +1791,31 @@ select option {
     flex-wrap: wrap;
 }
 
+/* Urgent variant — same compact height, just stronger colour signal */
 .freshness-banner-urgent {
-    padding: var(--space-4);
-    border-radius: var(--radius-lg);
-    font-size: var(--text-md);
-    font-weight: 500;
+    font-weight: 600;
+    font-size: var(--text-sm);
+    flex-wrap: nowrap;
+    justify-content: space-between;
 }
 
 .freshness-banner-urgent strong {
-    display: block;
-    font-size: var(--text-lg);
     font-weight: 700;
-    margin-bottom: var(--space-1);
+    /* Keep inline, do not block-display */
+    margin-right: var(--space-1);
 }
 
 .freshness-banner-urgent a {
-    display: inline-block;
-    margin-top: var(--space-2);
-    padding: var(--space-2) var(--space-4);
-    background-color: rgba(255,255,255,0.15);
-    border-radius: var(--radius-sm);
-    color: inherit;
+    white-space: nowrap;
     font-weight: 700;
-    text-decoration: none;
-    border: 1px solid currentColor;
+    text-decoration: underline;
+    color: inherit;
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .freshness-banner-urgent a:hover {
-    background-color: rgba(255,255,255,0.25);
+    opacity: 0.8;
 }
 
 /* ── Dashboard mobile cards (fixtures list) ── */
@@ -1864,30 +1884,25 @@ select option {
         padding: 0 var(--space-4);
         height: 48px;
         gap: var(--space-2);
-        overflow: hidden;
     }
 
     .header-title {
         font-size: var(--text-md);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        min-width: 0;
-        flex: 1;
     }
 
     .header-actions {
-        flex-shrink: 0;
         gap: var(--space-2);
     }
 
-    /* Quota badge compact on mobile */
+    /* Quota badge: hide long text, show short version */
     .quota-badge {
         font-size: var(--text-xs);
         padding: var(--space-1) var(--space-2);
     }
+    .quota-full { display: none; }
+    .quota-short { display: inline; }
 
-    /* Theme toggle — shrink to icon-only on mobile */
+    /* Theme toggle: icon-only on mobile */
     .theme-toggle-btn {
         padding: var(--space-1);
         width: 32px;
@@ -1895,12 +1910,8 @@ select option {
         justify-content: center;
         flex-shrink: 0;
     }
-    .theme-toggle-btn span {
-        display: none;
-    }
-    .theme-toggle-btn .theme-icon {
-        display: flex !important;
-    }
+    .theme-label { display: none; }
+    .theme-icon  { display: flex; }
 
     /* All grids to single column on mobile */
     .grid-2,
