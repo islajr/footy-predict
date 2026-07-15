@@ -1424,3 +1424,560 @@ select option {
     border-color: var(--color-amber);
     background-color: var(--color-amber-muted);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE-FIRST RESPONSIVE OVERHAUL (≤ 768px)
+   Bottom navigation, card-based picks, bottom-sheet parlay slip
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Mobile bottom navigation bar ── */
+.mobile-nav {
+    display: none;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60px;
+    background-color: var(--bg-vibrancy);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-top: 1px solid var(--border-primary);
+    z-index: 200;
+    padding: 0 var(--space-2);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.mobile-nav-inner {
+    display: flex;
+    align-items: stretch;
+    justify-content: space-around;
+    height: 100%;
+    max-width: 500px;
+    margin: 0 auto;
+}
+
+.mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: var(--space-2) var(--space-3);
+    color: var(--text-tertiary);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    transition: color var(--transition-fast);
+    min-width: 52px;
+    flex: 1;
+}
+
+.mobile-nav-item:hover,
+.mobile-nav-item.active {
+    color: var(--accent);
+}
+
+.mobile-nav-item svg {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+}
+
+.mobile-nav-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+}
+
+/* ── Mobile pick cards (shown instead of table on mobile) ── */
+.picks-card-grid {
+    display: none;
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.pick-mobile-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-lg);
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    transition: all var(--transition-fast);
+}
+
+.pick-mobile-card:hover {
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-sm);
+}
+
+.pick-mobile-card.pick-high {
+    border-left: 3px solid var(--color-green);
+}
+
+.pick-mobile-card.pick-medium {
+    border-left: 3px solid var(--color-amber);
+}
+
+.pick-mobile-card.pick-low {
+    border-left: 3px solid var(--color-red);
+    opacity: 0.75;
+}
+
+.pick-mobile-card.pick-1up,
+.pick-mobile-card.pick-2up {
+    border-left: 3px solid var(--color-purple);
+}
+
+.pick-card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: var(--space-2);
+}
+
+.pick-card-match {
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    line-height: 1.3;
+    flex: 1;
+}
+
+.pick-card-league {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-top: var(--space-1);
+}
+
+.pick-card-market {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+
+.pick-card-market-name {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+}
+
+.pick-card-pick {
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: var(--color-green);
+}
+
+/* Lead-trigger picks (1UP/2UP) special treatment */
+.lead-trigger-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--color-purple-muted);
+    color: var(--color-purple);
+    border: 1px solid var(--color-purple);
+    border-radius: var(--radius-xs);
+    padding: 2px var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+/* Handicap void probability pill */
+.void-prob-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background-color: var(--color-amber-muted);
+    color: var(--color-amber);
+    border: 1px solid rgba(255, 159, 10, 0.3);
+    border-radius: var(--radius-xs);
+    padding: 2px var(--space-2);
+    font-size: var(--text-xs);
+    font-weight: 600;
+}
+
+.pick-card-stats {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.pick-card-prob {
+    font-size: var(--text-xl);
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+}
+
+.pick-card-odds {
+    font-size: var(--text-sm);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.pick-card-add-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 44px;
+    background-color: var(--accent-muted);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-md);
+    color: var(--accent);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    gap: var(--space-2);
+}
+
+.pick-card-add-btn:hover,
+.pick-card-add-btn:active {
+    background-color: var(--accent);
+    color: white;
+}
+
+.pick-card-add-btn.in-slip {
+    background-color: var(--color-green-muted);
+    border-color: var(--color-green);
+    color: var(--color-green);
+}
+
+/* ── Mobile parlay bottom sheet ── */
+.parlay-bottom-sheet {
+    display: none;
+    position: fixed;
+    bottom: 60px; /* above mobile nav */
+    left: 0;
+    right: 0;
+    z-index: 150;
+    transition: transform var(--transition-normal) var(--ease-spring);
+}
+
+.parlay-sheet-handle-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-bottom: none;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    cursor: pointer;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+    gap: var(--space-3);
+}
+
+.parlay-sheet-handle-bar:hover {
+    background-color: var(--bg-surface-hover);
+}
+
+.parlay-sheet-stats {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    flex: 1;
+}
+
+.parlay-sheet-stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+}
+
+.parlay-sheet-stat-val {
+    font-size: var(--text-lg);
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    line-height: 1;
+}
+
+.parlay-sheet-stat-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.parlay-sheet-expand-btn {
+    background-color: var(--bg-surface-hover);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.parlay-sheet-body {
+    display: none;
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-top: none;
+    max-height: 55vh;
+    overflow-y: auto;
+    padding: var(--space-4);
+    flex-direction: column;
+    gap: var(--space-3);
+}
+
+.parlay-sheet-body.open {
+    display: flex;
+}
+
+.parlay-sheet-save-btn {
+    width: 100%;
+    height: 48px;
+    background-color: var(--accent);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--text-md);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    margin-top: var(--space-2);
+}
+
+.parlay-sheet-save-btn:hover {
+    background-color: var(--accent-hover);
+}
+
+/* ── Stale data banners (enhanced) ── */
+.freshness-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-primary);
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    margin-bottom: var(--space-6);
+    flex-wrap: wrap;
+}
+
+.freshness-banner-urgent {
+    padding: var(--space-4);
+    border-radius: var(--radius-lg);
+    font-size: var(--text-md);
+    font-weight: 500;
+}
+
+.freshness-banner-urgent strong {
+    display: block;
+    font-size: var(--text-lg);
+    font-weight: 700;
+    margin-bottom: var(--space-1);
+}
+
+.freshness-banner-urgent a {
+    display: inline-block;
+    margin-top: var(--space-2);
+    padding: var(--space-2) var(--space-4);
+    background-color: rgba(255,255,255,0.15);
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    border: 1px solid currentColor;
+}
+
+.freshness-banner-urgent a:hover {
+    background-color: rgba(255,255,255,0.25);
+}
+
+/* ── Dashboard mobile cards (fixtures list) ── */
+.fixture-card-mobile {
+    display: none; /* shown on mobile only */
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+    flex-direction: column;
+    gap: var(--space-2);
+    transition: all var(--transition-fast);
+    text-decoration: none;
+}
+
+.fixture-card-mobile:hover {
+    border-color: var(--border-strong);
+    background-color: var(--bg-surface-hover);
+}
+
+.fixture-card-teams {
+    font-size: var(--text-md);
+    font-weight: 700;
+    color: var(--text-primary);
+    font-family: var(--font-display);
+}
+
+.fixture-card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+}
+
+.fixture-card-date {
+    font-size: var(--text-xs);
+    color: var(--text-tertiary);
+}
+
+/* ── Main responsive breakpoints ── */
+
+@media (max-width: 768px) {
+    /* Hide desktop sidebar entirely */
+    .sidebar {
+        display: none !important;
+    }
+
+    /* Show bottom nav */
+    .mobile-nav {
+        display: flex;
+    }
+
+    /* Content fills full width */
+    .main-wrapper {
+        margin-left: 0 !important;
+        width: 100% !important;
+    }
+
+    /* Add bottom padding so content isn't hidden behind nav */
+    .content-body {
+        padding: var(--space-4);
+        padding-bottom: calc(60px + var(--space-6));
+    }
+
+    /* Header compact */
+    .app-header {
+        padding: 0 var(--space-4);
+        height: 48px;
+    }
+
+    .header-title {
+        font-size: var(--text-md);
+    }
+
+    /* Quota badge compact on mobile */
+    .quota-badge {
+        font-size: var(--text-xs);
+        padding: var(--space-1) var(--space-2);
+    }
+
+    /* Theme toggle — icon only on mobile */
+    .theme-toggle-btn span {
+        display: none;
+    }
+
+    /* All grids to single column on mobile */
+    .grid-2,
+    .grid-3,
+    .grid-4,
+    .grid-auto,
+    .grid-sidebar {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Parlay grid stacked */
+    .parlay-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Sticky slip becomes normal flow (bottom sheet handles it) */
+    .sticky-slip {
+        display: none !important;
+    }
+
+    /* Show picks card grid, hide picks table */
+    .picks-card-grid {
+        display: flex;
+    }
+
+    .picks-table-wrapper {
+        display: none !important;
+    }
+
+    /* Show fixture cards, hide fixture table */
+    .fixture-card-mobile {
+        display: flex;
+    }
+
+    .fixture-table-wrapper {
+        display: none !important;
+    }
+
+    /* Show parlay bottom sheet */
+    .parlay-bottom-sheet {
+        display: block;
+    }
+
+    /* Match detail: metric pills wrap on mobile */
+    .match-metric-row {
+        flex-wrap: wrap;
+        gap: var(--space-2);
+    }
+
+    .metric-pill {
+        min-width: 0;
+        flex: 1;
+    }
+
+    /* Factor name truncation on mobile */
+    .factor-name {
+        width: 100px;
+        font-size: var(--text-xs);
+    }
+
+    /* Toast — full width on mobile */
+    .toast-container {
+        left: var(--space-4);
+        right: var(--space-4);
+        bottom: calc(60px + var(--space-4));
+    }
+
+    .toast {
+        min-width: unset;
+        max-width: unset;
+        width: 100%;
+    }
+
+    /* Floating sync banner — above mobile nav */
+    .floating-sync-banner {
+        bottom: calc(60px + var(--space-3));
+        width: calc(100% - var(--space-8));
+        left: var(--space-4);
+        right: var(--space-4);
+    }
+}
+
+@media (max-width: 480px) {
+    .content-body {
+        padding: var(--space-3);
+        padding-bottom: calc(60px + var(--space-5));
+    }
+
+    .section-header h2 {
+        font-size: var(--text-xl);
+    }
+
+    .card {
+        padding: var(--space-4);
+    }
+
+    /* Stats strip goes 2-column on very small screens */
+    .grid-4 {
+        grid-template-columns: repeat(2, 1fr) !important;
+    }
+}

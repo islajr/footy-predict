@@ -46,8 +46,57 @@
     </form>
 </div>
 
+<!-- Mobile card grid (hidden on desktop, shown on mobile via CSS) -->
+<div class="picks-card-grid" id="picks-card-grid">
+    {% if picks %}
+        {% for p in picks %}
+        {% set is_lead_trigger = '1up' in p.market_code|lower or '2up' in p.market_code|lower or '1up' in p.pick|lower or '2up' in p.pick|lower %}
+        {% set is_handicap = p.market_code == 'handicap' %}
+        {% set void_prob = p.supporting_stats.void_prob if p.supporting_stats and p.supporting_stats.void_prob is defined else none %}
+        <div class="pick-mobile-card pick-{{ p.confidence|lower }}{% if is_lead_trigger %} pick-1up{% endif %}" data-match-id="{{ p.match_id }}">
+            <div class="pick-card-top">
+                <div>
+                    <div class="pick-card-match">{{ p.home_team }} vs {{ p.away_team }}</div>
+                    <div class="pick-card-league">{{ p.league }} · {{ p.match_date }}</div>
+                </div>
+                <span class="badge {% if p.confidence == 'HIGH' %}badge-high{% elif p.confidence == 'MEDIUM' %}badge-medium{% else %}badge-low{% endif %}">{{ p.confidence }}</span>
+            </div>
+
+            <div class="pick-card-market">
+                <span class="pick-card-market-name">{{ p.market_name }}</span>
+                {% if is_lead_trigger %}
+                <span class="lead-trigger-badge">⚡ Triggers on lead</span>
+                {% endif %}
+            </div>
+
+            <div class="pick-card-pick">{{ p.pick }}</div>
+
+            {% if is_handicap and void_prob %}
+            <span class="void-prob-pill">↩ P(void) {{ '%.0f'|format(void_prob * 100) }}% — stake returned if margin exact</span>
+            {% endif %}
+
+            <div class="pick-card-stats">
+                <span class="pick-card-prob">{{ (p.probability * 100)|int }}%</span>
+                <span class="pick-card-odds">{{ "%.2f"|format(p.implied_odds) }}x</span>
+            </div>
+
+            <button class="pick-card-add-btn"
+                onclick="addToParlaySlip({{ p.match_id }}, '{{ p.market_code }}', {{ (p.home_team ~ ' vs ' ~ p.away_team)|tojson }}, {{ p.market_name|tojson }}, {{ p.pick|tojson }}, {{ p.probability }}, '{{ p.confidence }}', {{ p.implied_odds }})"
+                id="mobile-slip-btn-{{ p.match_id }}-{{ p.market_code|replace('-','_') }}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add to Slip
+            </button>
+        </div>
+        {% endfor %}
+    {% else %}
+    <div class="card" style="text-align: center; padding: var(--space-10);">
+        <p style="color: var(--text-secondary);">No picks match your current filters.</p>
+    </div>
+    {% endif %}
+</div>
+
 <!-- Picks Table -->
-<div class="card">
+<div class="card picks-table-wrapper">
     {% if picks %}
     <table class="styled-table">
         <thead>

@@ -83,6 +83,31 @@
         </div>
     </div>
 </div>
+
+<!-- Mobile Parlay Bottom Sheet (shown on mobile only via CSS) -->
+<div class="parlay-bottom-sheet" id="parlay-bottom-sheet">
+    <div class="parlay-sheet-handle-bar" onclick="toggleParlaySheet()">
+        <div class="parlay-sheet-stats">
+            <div class="parlay-sheet-stat">
+                <span class="parlay-sheet-stat-val" id="sheet-pick-count">0</span>
+                <span class="parlay-sheet-stat-label">Picks</span>
+            </div>
+            <div class="parlay-sheet-stat">
+                <span class="parlay-sheet-stat-val" id="sheet-combined-odds">1.00x</span>
+                <span class="parlay-sheet-stat-label">Odds</span>
+            </div>
+            <div class="parlay-sheet-stat">
+                <span class="parlay-sheet-stat-val" id="sheet-win-prob">100%</span>
+                <span class="parlay-sheet-stat-label">Win Prob</span>
+            </div>
+        </div>
+        <button class="parlay-sheet-expand-btn" id="sheet-toggle-label">🏟️ View Slip ›</button>
+    </div>
+    <div class="parlay-sheet-body" id="parlay-sheet-body">
+        <div id="sheet-slip-items" style="display: flex; flex-direction: column; gap: var(--space-2);"></div>
+        <button class="parlay-sheet-save-btn" onclick="saveSlip()">💾 Save Parlay Slip</button>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -399,5 +424,67 @@
 
     // Initialize on page load
     window.onload = initSlip;
+</script>
+
+<script>
+// ── Mobile Parlay Bottom Sheet ──
+let sheetOpen = false;
+
+function toggleParlaySheet() {
+    sheetOpen = !sheetOpen;
+    const body = document.getElementById('parlay-sheet-body');
+    const label = document.getElementById('sheet-toggle-label');
+    if (sheetOpen) {
+        body.classList.add('open');
+        label.textContent = '✕ Close Slip';
+        syncSheetSlipItems();
+    } else {
+        body.classList.remove('open');
+        label.textContent = '🏟️ View Slip ›';
+    }
+}
+
+function syncSheetSlipItems() {
+    const container = document.getElementById('sheet-slip-items');
+    if (!container) return;
+    if (!currentSlip || currentSlip.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-tertiary); font-size: 13px; text-align: center;">No picks added yet. Use the picks page or + buttons above.</p>';
+        return;
+    }
+    container.innerHTML = currentSlip.map(p => `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding: var(--space-2) var(--space-3); background: var(--bg-surface-hover); border-radius: var(--radius-md); border: 1px solid var(--border-primary); gap: var(--space-2);">
+            <div style="flex:1; min-width:0;">
+                <div style="font-size:12px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${p.home_team} vs ${p.away_team}</div>
+                <div style="font-size:11px; color:var(--color-green); font-weight:600;">${p.market_name} — ${p.pick}</div>
+            </div>
+            <span class="badge badge-${p.confidence.toLowerCase()}">${p.confidence}</span>
+            <button onclick="removePick(${p.match_id}); syncSheetSlipItems();" style="background:none; border:none; color:var(--color-red); cursor:pointer; font-size:18px; padding: 0 var(--space-1); flex-shrink:0;">×</button>
+        </div>
+    `).join('');
+}
+
+// Wrap updateCombinedStats to also sync the mobile sheet stats
+const _origUpdateCombinedStats = updateCombinedStats;
+updateCombinedStats = function() {
+    _origUpdateCombinedStats();
+    // Sync mobile sheet stats
+    const pickCount = document.getElementById('sheet-pick-count');
+    const combinedOdds = document.getElementById('sheet-combined-odds');
+    const winProb = document.getElementById('sheet-win-prob');
+    if (!pickCount) return;
+    if (!currentSlip || currentSlip.length === 0) {
+        pickCount.textContent = '0';
+        combinedOdds.textContent = '1.00x';
+        winProb.textContent = '100%';
+        return;
+    }
+    pickCount.textContent = currentSlip.length;
+    const odds = currentSlip.reduce((acc, p) => acc * (p.implied_odds || 1), 1);
+    combinedOdds.textContent = odds.toFixed(2) + 'x';
+    const prob = currentSlip.reduce((acc, p) => acc * (p.probability || 0.5), 1) * 100;
+    winProb.textContent = prob.toFixed(1) + '%';
+    // Sync sheet items if open
+    if (sheetOpen) syncSheetSlipItems();
+};
 </script>
 {% endblock %}

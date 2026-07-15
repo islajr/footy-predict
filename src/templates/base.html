@@ -113,18 +113,62 @@
             <main class="content-body">
                 <!-- Data Freshness Banner -->
                 {% if freshness %}
-                <div class="freshness-banner {% if freshness.hours > 48 %}freshness-red{% elif freshness.hours > 24 %}freshness-amber{% else %}freshness-green{% endif %}" style="margin-bottom: var(--space-6);">
-                    <span>Database last refreshed {{ freshness.label }}.</span>
-                    {% if freshness.hours > 24 %}
-                    <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600;">Refresh now</a>
-                    {% endif %}
+                {% if freshness.hours > 96 %}
+                <div class="freshness-banner freshness-red freshness-banner-urgent" style="margin-bottom: var(--space-6);">
+                    <strong>⛔ Data is {{ freshness.label }} old</strong>
+                    This weekend's picks may be based on stale form data. A sync is needed before you build your slip.
+                    <a href="javascript:void(0)" onclick="triggerGlobalFetch()">Sync now →</a>
                 </div>
+                {% elif freshness.hours > 48 %}
+                <div class="freshness-banner freshness-red freshness-banner-urgent" style="margin-bottom: var(--space-6);">
+                    <strong>⚠ Data last synced {{ freshness.label }} ago</strong>
+                    Your picks may be based on outdated form. Refresh before building your slip.
+                    <a href="javascript:void(0)" onclick="triggerGlobalFetch()">Sync now →</a>
+                </div>
+                {% elif freshness.hours > 24 %}
+                <div class="freshness-banner freshness-amber" style="margin-bottom: var(--space-6);">
+                    <span class="freshness-dot stale"></span>
+                    <span>Data last synced {{ freshness.label }} ago.</span>
+                    <a href="javascript:void(0)" onclick="triggerGlobalFetch()" style="text-decoration: underline; font-weight: 600; margin-left: auto;">Refresh now</a>
+                </div>
+                {% else %}
+                <div class="freshness-banner freshness-green" style="margin-bottom: var(--space-6);">
+                    <span class="freshness-dot fresh"></span>
+                    <span>Data synced {{ freshness.label }} ago</span>
+                </div>
+                {% endif %}
                 {% endif %}
 
                 {% block content %}{% endblock %}
             </main>
         </div>
     </div>
+
+    <!-- Mobile Bottom Navigation (hidden on desktop via CSS) -->
+    <nav class="mobile-nav" aria-label="Mobile navigation">
+        <div class="mobile-nav-inner">
+            <a href="/dashboard" class="mobile-nav-item {% if active_page == 'dashboard' %}active{% endif %}" aria-label="Dashboard">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                <span class="mobile-nav-label">Home</span>
+            </a>
+            <a href="/picks" class="mobile-nav-item {% if active_page == 'picks' %}active{% endif %}" aria-label="Picks">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+                <span class="mobile-nav-label">Picks</span>
+            </a>
+            <a href="/parlay" class="mobile-nav-item {% if active_page == 'parlay' %}active{% endif %}" aria-label="Parlay">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                <span class="mobile-nav-label">Parlay</span>
+            </a>
+            <a href="/analysis" class="mobile-nav-item {% if active_page == 'analysis' %}active{% endif %}" aria-label="Analysis">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <span class="mobile-nav-label">Analysis</span>
+            </a>
+            <a href="/statistics" class="mobile-nav-item {% if active_page == 'statistics' %}active{% endif %}" aria-label="Stats">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                <span class="mobile-nav-label">Stats</span>
+            </a>
+        </div>
+    </nav>
 
     <!-- Fetch Progress Modal -->
     <div id="fetch-progress-modal" class="modal-backdrop">

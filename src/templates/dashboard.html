@@ -37,6 +37,20 @@
             
             <div id="upcoming-body">
                 {% if matches %}
+                <!-- Mobile fixture list (hidden on desktop via CSS) -->
+                <div id="fixture-card-list-mobile" style="display:flex; flex-direction:column; gap:var(--space-2);">
+                    {% for m in matches[:10] %}
+                    <a href="/analysis/match/{{ m.id }}" class="fixture-card-mobile">
+                        <div class="fixture-card-teams">{{ m.home_team }} vs {{ m.away_team }}</div>
+                        <div class="fixture-card-meta">
+                            <span class="fixture-card-date">{{ m.date }}</span>
+                            <span class="badge badge-medium" style="font-size:10px;">{{ m.league }}</span>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                <!-- Desktop fixture table -->
+                <div class="fixture-table-wrapper">
                 <table class="styled-table">
                     <thead>
                         <tr>
@@ -59,6 +73,7 @@
                         {% endfor %}
                     </tbody>
                 </table>
+                </div>
                 {% else %}
                 <div style="text-align: center; padding: var(--space-8) 0; color: var(--text-secondary);">
                     <p style="font-size: var(--text-md); margin-bottom: var(--space-2);">No upcoming matches found in the next 7 days.</p>
