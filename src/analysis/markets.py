@@ -1439,79 +1439,99 @@ def model_lead_trigger(
     scoring = _get_factor(factors, "scoring_frequency")
     am = _get_factor(factors, "attacking_matchup")
     timing = _get_factor(factors, "goal_timing")
+    h2h = _get_factor(factors, "head_to_head")
 
-    # ── Expected goals per team ───────────────────────────────────
+    # ── Expected goals per team (Poisson λ) ───────────────────────
     if am and am.data_points.get("expected_home_goals"):
-        lam_home = max(0.1, am.data_points["expected_home_goals"])
-        lam_away = max(0.1, am.data_points["expected_away_goals"])
+        lam_h = max(0.1, am.data_points["expected_home_goals"])
+        lam_a = max(0.1, am.data_points["expected_away_goals"])
     elif scoring and scoring.data_points:
-        home_base = scoring.data_points.get("home_gpg") or 1.3
-        home_venue = scoring.data_points.get("home_home_gpg")
-        lam_home = max(0.1, home_base if home_venue is None else (0.7 * home_base + 0.3 * home_venue))
-        away_base = scoring.data_points.get("away_gpg") or 1.1
-        away_venue = scoring.data_points.get("away_away_gpg")
-        lam_away = max(0.1, away_base if away_venue is None else (0.7 * away_base + 0.3 * away_venue))
+        h_base = scoring.data_points.get("home_gpg") or 1.3
+        h_venue = scoring.data_points.get("home_home_gpg")
+        lam_h = max(0.1, h_base if h_venue is None else 0.7 * h_base + 0.3 * h_venue)
+        a_base = scoring.data_points.get("away_gpg") or 1.1
+        a_venue = scoring.data_points.get("away_away_gpg")
+        lam_a = max(0.1, a_base if a_venue is None else 0.7 * a_base + 0.3 * a_venue)
     else:
-        lam_home, lam_away = 1.3, 1.1
+        lam_h, lam_a = 1.3, 1.1
 
-    total_rate = lam_home + lam_away
+    total_rate = lam_h + lam_a
 
-    # ── First-goal probability ─────────────────────────────────────
-    # Poisson process: P(home scores first) = lam_home / (lam_home + lam_away)
-    p_home_first = lam_home / total_rate
-    p_away_first = lam_away / total_rate
+    # ── Scoring participation rate ─────────────────────────────────
+    # P(team scores at least 1 goal in match) — form data or Poisson fallback
+    home_scored_pct = (
+        scoring.data_points.get("home_scored_pct") if scoring and scoring.data_points else None
+    ) or (1.0 - math.exp(-lam_h))
+    away_scored_pct = (
+        scoring.data_points.get("away_scored_pct") if scoring and scoring.data_points else None
+    ) or (1.0 - math.exp(-lam_a))
 
-    # ── Goal timing adjustment ─────────────────────────────────────
-    # Teams with high first-half win rates score early → higher 1UP probability
+    # ── P(scores first) via Poisson race ─────────────────────────
+    p_home_first = lam_h / total_rate
+    p_away_first = lam_a / total_rate
+
+    # ── HT lead rate from timing data ────────────────────────────
     home_h1_rate = (
         timing.data_points.get("home_1h_win_rate") if timing and timing.data_points else None
-    ) or 0.40
+    ) or 0.38
     away_h1_rate = (
         timing.data_points.get("away_1h_win_rate") if timing and timing.data_points else None
-    ) or 0.30
+    ) or 0.28
+
+    # ── H2H lead tendency ────────────────────────────────────────
+    h2h_home_win_rate = (
+        h2h.data_points.get("home_win_rate_h2h") if h2h and h2h.data_points else None
+    ) or 0.45
 
     # ── P(1UP) ────────────────────────────────────────────────────
-    # Blend: first-goal probability (60%) + timing-adjusted quality (40%)
-    # A team going ahead at any point = first-goal OR comeback lead
-    # Comeback probability ≈ 15% for home, 10% for away (structural home advantage)
-    p_home_comeback_lead = 0.15  # approx P(home goes behind then leads)
-    p_away_comeback_lead = 0.10  # approx P(away goes behind then leads)
+    # P(home leads at any point) =
+    #   P(scores first) → directly leads 1-0
+    # + P(away scores first) × P(home then comes back to lead)
+    #   comeback ≈ P(home scores two before away scores a second from 0-1 down)
+    #            ≈ (λ_h / total)^1.3 × 0.85 (dampened — comebacks are harder)
+    p_h_comeback = p_away_first * (lam_h / total_rate) ** 1.3 * 0.85
+    p_h_1up_raw = p_home_first + p_h_comeback
 
-    p_home_1up = min(0.97, (
-        0.60 * p_home_first
-        + 0.25 * home_h1_rate
-        + 0.15 * (lam_home / max(lam_home, 1.0))
-    ) + p_home_comeback_lead * (1 - p_home_first))
+    # Form anchor: scoring_pct + h1_rate + h2h_tendency
+    p_h_1up_form = 0.55 * home_scored_pct + 0.30 * home_h1_rate + 0.15 * h2h_home_win_rate
 
-    p_away_1up = min(0.97, (
-        0.60 * p_away_first
-        + 0.25 * away_h1_rate
-        + 0.15 * (lam_away / max(lam_away, 1.0))
-    ) + p_away_comeback_lead * (1 - p_away_first))
+    # Final 1UP: 65% model, 35% form anchor
+    p_home_1up = 0.65 * p_h_1up_raw + 0.35 * p_h_1up_form
+
+    # Away 1UP symmetric (away comebacks slightly harder)
+    p_a_comeback = p_home_first * (lam_a / total_rate) ** 1.3 * 0.70
+    p_a_1up_raw = p_away_first + p_a_comeback
+    p_a_1up_form = 0.55 * away_scored_pct + 0.30 * away_h1_rate + 0.15 * (1.0 - h2h_home_win_rate)
+    p_away_1up = 0.65 * p_a_1up_raw + 0.35 * p_a_1up_form
 
     # ── P(2UP) ────────────────────────────────────────────────────
-    # Conditional: given they went 1 ahead, what's P(they then score again before equalised)?
-    # 2UP bonus: +12-15% vs outright win (decoupled from final score)
+    # P(2UP home) = P(home win) + P(led by 2 but drew or lost)
+    # P(led by 2 at any point) — sequential Poisson:
+    #   going 2 ahead = home scores twice before away equalises from 0
+    #   ≈ (λ_h / total)^1.6  (exponent < 2 accounts for non-sequential paths)
     p_home_win, _, p_away_win = _1x2_base_probs(overall_score, patterns)
 
-    # Sequential Poisson: P(home scores twice before away scores twice)
-    # Approx: (lam_home / total_rate)^2 gives too conservative; actual 2UP > this
-    # because the team can trail, draw, then retake a 2-goal lead
-    p_home_seq = (lam_home / total_rate) ** 1.5  # 1.5 exponent: less conservative
-    p_away_seq = (lam_away / total_rate) ** 1.5
+    p_h_reach_2_ahead = (lam_h / total_rate) ** 1.6
+    p_a_reach_2_ahead = (lam_a / total_rate) ** 1.6
 
-    p_home_2up = min(0.97, max(p_home_win + 0.10, p_home_seq * 1.2))
-    p_away_2up = min(0.97, max(p_away_win + 0.08, p_away_seq * 1.2))
+    # Bonus = additional coverage beyond plain win (capped at 15%)
+    h_bonus = min(0.15, max(0.0, p_h_reach_2_ahead - p_home_win * 0.5))
+    a_bonus = min(0.12, max(0.0, p_a_reach_2_ahead - p_away_win * 0.5))
 
-    # Enforce: 1UP > 2UP always (1UP triggers earlier)
-    p_home_2up = min(p_home_2up, p_home_1up - 0.03)
-    p_away_2up = min(p_away_2up, p_away_1up - 0.03)
-    # Enforce: 1UP and 2UP > outright win probability (key advantage of these markets)
-    p_home_1up = max(p_home_1up, p_home_win + 0.05)
-    p_away_1up = max(p_away_1up, p_away_win + 0.03)
-    p_home_2up = max(p_home_2up, p_home_win + 0.02)
+    p_home_2up = p_home_win + h_bonus
+    p_away_2up = p_away_win + a_bonus
+
+    # ── Constraint enforcement ────────────────────────────────────
+    # 1UP >= 2UP (triggers on smaller lead threshold)
+    p_home_2up = min(p_home_2up, p_home_1up - 0.02)
+    p_away_2up = min(p_away_2up, p_away_1up - 0.02)
+    # 2UP >= win (adds coverage, never removes)
+    p_home_2up = max(p_home_2up, p_home_win)
     p_away_2up = max(p_away_2up, p_away_win)
-    # Final clamp
+    # 1UP >= win + meaningful gap (covers draw/loss scenarios)
+    p_home_1up = max(p_home_1up, p_home_win + 0.04)
+    p_away_1up = max(p_away_1up, p_away_win + 0.03)
+    # Global clamp
     p_home_1up = min(0.97, p_home_1up)
     p_away_1up = min(0.97, p_away_1up)
     p_home_2up = min(0.97, p_home_2up)
@@ -1521,12 +1541,16 @@ def model_lead_trigger(
     mkt_name = mkt.name if mkt else "Match Result"
 
     stats = {
-        "lambda_home": round(lam_home, 2),
-        "lambda_away": round(lam_away, 2),
-        "p_home_first_goal": round(p_home_first, 4),
-        "p_away_first_goal": round(p_away_first, 4),
+        "lambda_home": round(lam_h, 2),
+        "lambda_away": round(lam_a, 2),
+        "p_home_scores_first": round(p_home_first, 3),
+        "p_away_scores_first": round(p_away_first, 3),
+        "home_scored_pct": round(home_scored_pct, 3),
+        "away_scored_pct": round(away_scored_pct, 3),
         "home_h1_win_rate": round(home_h1_rate, 3),
         "away_h1_win_rate": round(away_h1_rate, 3),
+        "p_home_win": round(p_home_win, 3),
+        "p_away_win": round(p_away_win, 3),
     }
 
     return [
@@ -1539,7 +1563,7 @@ def model_lead_trigger(
             implied_odds=_implied_odds(p_home_1up),
             rationale=(
                 f"P(Home leads at any point) = {p_home_1up:.0%}. "
-                f"Expected {lam_home:.1f} home goals vs {lam_away:.1f} away goals. "
+                f"Expected {lam_h:.1f} home goals vs {lam_a:.1f} away goals. "
                 f"Home first-goal probability: {p_home_first:.0%}. "
                 "Bet settles as WIN the moment home team goes 1 goal ahead — "
                 "does NOT require holding the lead until full time."
@@ -1574,7 +1598,7 @@ def model_lead_trigger(
             implied_odds=_implied_odds(p_home_2up),
             rationale=(
                 f"P(Home leads by 2 at any point) = {p_home_2up:.0%}. "
-                f"Expected {lam_home:.1f} home goals vs {lam_away:.1f} away goals. "
+                f"Expected {lam_h:.1f} home goals vs {lam_a:.1f} away goals. "
                 "Bet settles as WIN once home team goes 2 goals ahead at any moment "
                 "— the lead does not need to be maintained. "
                 "Better odds than 1UP but still safer than an outright win."
