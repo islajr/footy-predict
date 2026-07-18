@@ -1,0 +1,25 @@
+# railway.toml — Railway deployment configuration
+# https://docs.railway.app/reference/config-as-code
+#
+# Setup steps after subscribing:
+#   1. Create a Volume in Railway dashboard, name it "footy-db"
+#   2. Mount it at /data on the service
+#   3. Add environment variable: DATABASE_URL=/data/footy.db
+#   4. Add API keys: API_FOOTBALL_KEY and FOOTBALL_DATA_ORG_KEY
+#   5. Deploy — the DB will persist across deploys and restarts
+#
+# Cron jobs (create as separate services in Railway dashboard):
+#   Monday 06:00 UTC  → python -m footy fetch --stats --stats-limit 30
+#   Thursday 17:00 UTC → python -m footy fetch-upcoming
+#   (18:00 WAT — ready before your Thursday evening session)
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+# 2 workers handles concurrent page loads without eating too much RAM
+startCommand = "uvicorn src.api.app:app --host 0.0.0.0 --port $PORT --workers 2 --log-level warning"
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+healthcheckPath = "/health"
+healthcheckTimeout = 30
