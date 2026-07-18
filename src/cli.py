@@ -181,6 +181,145 @@ def fetch(ctx: click.Context, league: str | None, stats: bool, stats_limit: int)
 
 
 # ═══════════════════════════════════════════════════════════════
+#  fetch-upcoming — Pre-weekend quota-aware fixture sync
+# ═══════════════════════════════════════════════════════════════
+
+@cli.command("fetch-upcoming")
+@click.option("--days", "-d", default=7, type=int, show_default=True,
+              help="Sync fixtures for the next N days (default: 7).")
+@click.option("--budget", default=60, type=int, show_default=True,
+              help="Max API-Football calls to spend in this run (default: 60). "
+                   "Leaves headroom for other operations within the 100/day cap.")
+@click.option("--league", "-l", default=None,
+              help="Restrict to a single league slug. Omit for all active leagues.")
+@click.pass_context
+def fetch_upcoming(ctx: click.Context, days: int, budget: int, league: str | None) -> None:
+    """Sync upcoming fixtures and standings — optimised for pre-weekend use.
+
+    Fetches fixtures for the next DAYS days plus current standings for every
+    active league. Quota-aware: aborts early if fewer than 20 API calls remain
+    or the run would exceed --budget calls.
+
+    Run this on Thursday evening before building your parlay slip so the
+    database reflects the latest form, standings, and fixture list.
+
+    \\b
+    Examples:
+        footy fetch-upcoming                    # Next 7 days, all leagues
+        footy fetch-upcoming --days 10          # Extend window slightly
+        footy fetch-upcoming --league premier-league  # One league only
+        footy fetch-upcoming --budget 40        # Conservative budget
+    """
+    db = ctx.obj["db"]
+
+    from src.config import API_FOOTBALL, FDO_LEAGUES, FOOTBALL_DATA_ORG, LEAGUES
+    from src.fetchers.api_football import APIFootballClient
+    from src.fetchers.football_data_org import FootballDataOrgClient
+
+    ABORT_THRESHOLD = 20  # Never leave fewer than this many calls unused
+
+    if league and league not in LEAGUES:
+        console.print(f"[red]Unknown league: '{league}'[/red]")
+        console.print(f"Available: {', '.join(sorted(LEAGUES.keys()))}")
+        sys.exit(1)
+
+    async def _fetch_upcoming() -> None:
+        api_key = db.get_setting("api_football_key") or API_FOOTBALL.key
+        fdo_key = db.get_setting("football_data_org_key") or FOOTBALL_DATA_ORG.key
+
+        target_leagues = [LEAGUES[league]] if league else list(LEAGUES.values())
+        calls_this_run = 0
+        total_fixtures = 0
+        total_standings = 0
+        skipped = []
+
+        async with APIFootballClient(db) as api_client, \
+                   FootballDataOrgClient(db) as fdo_client:
+
+            # ── Pre-flight quota check ──────────────────────────────────
+            quota = api_client.get_quota_status() if api_key else {}
+            remaining_before = quota.get("remaining", 0)
+
+            console.print(
+                f"[dim]Quota before run: {quota.get('used', 0)}/{quota.get('daily_limit', 100)} used "
+                f"({remaining_before} remaining)[/dim]"
+            )
+
+            if api_key and remaining_before < ABORT_THRESHOLD:
+                console.print(
+                    f"[red]✗ Aborting — only {remaining_before} API calls remain today "
+                    f"(minimum required: {ABORT_THRESHOLD}).[/red]"
+                )
+                console.print("[dim]Wait for the quota to reset at midnight UTC.[/dim]")
+                return
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                for lg in target_leagues:
+                    # ── Per-league budget guard ─────────────────────────
+                    if api_key:
+                        quota_now = api_client.get_quota_status()
+                        remaining_now = quota_now.get("remaining", 0)
+                        if remaining_now < ABORT_THRESHOLD or calls_this_run >= budget:
+                            skipped.append(lg.name)
+                            continue
+
+                    task_id = progress.add_task(
+                        f"[cyan]{lg.name}[/cyan] — fixtures + standings", total=None
+                    )
+
+                    try:
+                        if lg.has_fdo and fdo_key:
+                            # FDO: fixtures (filtered to next N days server-side)
+                            count = await fdo_client.fetch_and_store_fixtures(lg.slug)
+                            total_fixtures += count
+                            st = await fdo_client.fetch_and_store_standings(lg.slug)
+                            total_standings += st
+                            # FDO doesn't consume API-Football quota
+                        elif api_key:
+                            count = await api_client.fetch_and_store_fixtures(lg.slug)
+                            total_fixtures += count
+                            calls_this_run += 1
+
+                            st = await api_client.fetch_and_store_standings(lg.slug)
+                            total_standings += st
+                            calls_this_run += 1
+                        else:
+                            progress.update(task_id, description=f"[yellow]⚠ {lg.name} — no API key, skipped[/yellow]")
+                            progress.update(task_id, completed=True)
+                            continue
+
+                    except Exception as e:
+                        console.print(f"[red]✗ {lg.name}: {e}[/red]")
+
+                    progress.update(task_id, completed=True)
+
+            # ── Post-run summary ────────────────────────────────────────
+            console.print()
+            console.print(
+                f"[green]✓ Synced {total_fixtures} fixtures, {total_standings} standings "
+                f"across {len(target_leagues) - len(skipped)} league(s)[/green]"
+            )
+            if skipped:
+                console.print(
+                    f"[yellow]⚠ Skipped (quota/budget): {', '.join(skipped)}[/yellow]"
+                )
+
+            if api_key:
+                quota_after = api_client.get_quota_status()
+                used_this_run = quota_after.get("used", 0) - quota.get("used", 0)
+                console.print(
+                    f"[dim]API-Football: {used_this_run} call(s) used this run · "
+                    f"{quota_after.get('remaining', '?')} remaining today[/dim]"
+                )
+
+    _run_async(_fetch_upcoming())
+
+
+# ═══════════════════════════════════════════════════════════════
 #  load-history — Bulk CSV import
 # ═══════════════════════════════════════════════════════════════
 
