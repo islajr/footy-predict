@@ -204,7 +204,7 @@ class ResultRecorder:
         ht_as = match.get("ht_away_score")
 
         if market == "1x2":
-            return self._eval_1x2(pick, hs, as_)
+            return self._eval_1x2(pick, hs, as_, ht_hs, ht_as)
 
         if market == "double-chance":
             return self._eval_double_chance(pick, hs, as_)
@@ -236,21 +236,97 @@ class ResultRecorder:
     # ── Individual market evaluators ────────────────────────
 
     @staticmethod
-    def _eval_1x2(pick: str, hs: int, as_: int) -> tuple[str, bool]:
-        """Full-time result: '1' (Home), 'X' (Draw), '2' (Away).
+    def _eval_1x2(
+        pick: str,
+        hs: int,
+        as_: int,
+        ht_hs: int | None = None,
+        ht_as: int | None = None,
+    ) -> tuple[str, bool]:
+        """Settle a 1X2 market pick, including 1UP and 2UP sub-picks.
 
-        1UP / 2UP sub-picks require in-play lead data (did the team lead by
-        1 or 2 goals at any moment?) which cannot be determined from the final
-        score alone.  These are returned as VOID so they do not pollute the
-        accuracy dashboard with unresolvable false failures.
+        Settlement rules (SportyBet):
+        ─────────────────────────────
+        Standard 1X2: Home / Draw / Away based on full-time score.
+
+        1UP: Bet wins the moment the selected team goes ≥1 goal ahead at
+             any point, regardless of final score.
+             Win condition: team was ≥1 ahead at HT OR won outright.
+             Approximation note: using FT+HT only — we cannot detect a brief
+             lead that was surrendered within a half.  This means we may
+             UNDERCOUNT 1UP wins (e.g. team was 1-0 up at 30 min but 1-1 at
+             HT → reported as not 1UP'd in first half).  Net effect: slight
+             conservative bias in 1UP accuracy tracking, which is preferable
+             to overcounting wins.
+
+        2UP: Bet wins if team wins outright (any margin) OR goes ≥2 goals
+             ahead at any point.
+             Win condition: team won outright OR team was ≥2 ahead at HT
+             OR final margin ≥2 in team's favour.
+             Note: same conservative approximation applies.
+
+        Args:
+            pick:   Pick label string (e.g. "Home 1X2 - 1UP", "1", "Draw").
+            hs:     Home full-time goals.
+            as_:    Away full-time goals.
+            ht_hs:  Home half-time goals (None if unavailable).
+            ht_as:  Away half-time goals (None if unavailable).
+
+        Returns:
+            (outcome_description, is_correct) tuple.
         """
         pick_upper = pick.upper()
+        ft_result = "1" if hs > as_ else ("X" if hs == as_ else "2")
 
-        # Detect 1UP / 2UP lead-trigger picks — cannot be settled from FT score
-        if "1UP" in pick_upper or "2UP" in pick_upper:
-            return (f"VOID (requires in-play data: {pick})", True)
+        # ── 1UP settlement ──────────────────────────────────────────
+        if "1UP" in pick_upper:
+            is_home = "HOME" in pick_upper
+            # Win if team won outright (they were certainly ≥1 ahead at some point)
+            if is_home:
+                won_outright = hs > as_
+                # HT-based lead check: home led at half time
+                ht_led = (ht_hs is not None and ht_as is not None and ht_hs > ht_as)
+                triggered = won_outright or ht_led
+                outcome = (
+                    f"Home 1UP: {'✓ Won outright' if won_outright else '✓ Led at HT' if ht_led else '✗ Never led (approx)'}"
+                    f" (FT {hs}–{as_}{'  HT ' + str(ht_hs) + '–' + str(ht_as) if ht_hs is not None else ''})"
+                )
+            else:
+                won_outright = as_ > hs
+                ht_led = (ht_hs is not None and ht_as is not None and ht_as > ht_hs)
+                triggered = won_outright or ht_led
+                outcome = (
+                    f"Away 1UP: {'✓ Won outright' if won_outright else '✓ Led at HT' if ht_led else '✗ Never led (approx)'}"
+                    f" (FT {hs}–{as_}{'  HT ' + str(ht_hs) + '–' + str(ht_as) if ht_hs is not None else ''})"
+                )
+            return outcome, triggered
 
-        # Normalise standard outright picks
+        # ── 2UP settlement ──────────────────────────────────────────
+        if "2UP" in pick_upper:
+            is_home = "HOME" in pick_upper
+            if is_home:
+                won_outright = hs > as_
+                # Led by ≥2 at HT
+                ht_2ahead = (ht_hs is not None and ht_as is not None and (ht_hs - ht_as) >= 2)
+                # Final margin ≥2 (doesn't require winning, just ever being 2 ahead — approximation)
+                ft_2ahead = (hs - as_) >= 2
+                triggered = won_outright or ht_2ahead or ft_2ahead
+                outcome = (
+                    f"Home 2UP: {'✓ Won outright' if won_outright else '✓ Led by 2 at HT' if ht_2ahead else '✓ FT margin ≥2' if ft_2ahead else '✗ Never 2 ahead (approx)'}"
+                    f" (FT {hs}–{as_}{'  HT ' + str(ht_hs) + '–' + str(ht_as) if ht_hs is not None else ''})"
+                )
+            else:
+                won_outright = as_ > hs
+                ht_2ahead = (ht_hs is not None and ht_as is not None and (ht_as - ht_hs) >= 2)
+                ft_2ahead = (as_ - hs) >= 2
+                triggered = won_outright or ht_2ahead or ft_2ahead
+                outcome = (
+                    f"Away 2UP: {'✓ Won outright' if won_outright else '✓ Led by 2 at HT' if ht_2ahead else '✓ FT margin ≥2' if ft_2ahead else '✗ Never 2 ahead (approx)'}"
+                    f" (FT {hs}–{as_}{'  HT ' + str(ht_hs) + '–' + str(ht_as) if ht_hs is not None else ''})"
+                )
+            return outcome, triggered
+
+        # ── Standard 1X2 ────────────────────────────────────────────
         if "HOME" in pick_upper or pick_upper.startswith("1"):
             norm_pick = "1"
         elif "DRAW" in pick_upper or pick_upper.startswith("X"):
@@ -260,13 +336,7 @@ class ResultRecorder:
         else:
             return (f"VOID (unknown pick: {pick})", True)
 
-        if hs > as_:
-            actual = "1"
-        elif hs == as_:
-            actual = "X"
-        else:
-            actual = "2"
-        return actual, norm_pick == actual
+        return ft_result, norm_pick == ft_result
 
     @staticmethod
     def _eval_double_chance(pick: str, hs: int, as_: int) -> tuple[str, bool]:
