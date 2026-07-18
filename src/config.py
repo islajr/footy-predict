@@ -21,7 +21,12 @@ load_dotenv()
 PROJECT_ROOT = Path(__file__).parent.parent
 DATA_DIR = PROJECT_ROOT / "data"
 HISTORICAL_DIR = DATA_DIR / "historical"
-DB_PATH = PROJECT_ROOT / "footy.db"
+
+# DATABASE_URL allows the db path to be overridden via environment variable.
+# On Railway, set DATABASE_URL=/data/footy.db (mounted volume).
+# Locally this resolves to the repo-root footy.db — no change needed.
+_db_url = os.getenv("DATABASE_URL")
+DB_PATH: Path = Path(_db_url) if _db_url else PROJECT_ROOT / "footy.db"
 
 # Ensure data directories exist
 DATA_DIR.mkdir(exist_ok=True)
