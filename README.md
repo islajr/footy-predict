@@ -13,7 +13,7 @@ Runs entirely on your laptop with SQLite. Cloud-deployable to Railway with a sin
 | Area | Detail |
 |------|--------|
 | **Analysis Engine** | 16-factor weighted model: form, xG quality, head-to-head, rest days, rivalry, venue bias, opponent strength, and more |
-| **11 Betting Markets** | 1X2, Double Chance, DNB, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap (half-line + whole-line void model), 1X2-1UP/2UP, Team O/U (0.5/1.5/2.5) |
+| **11 Betting Markets** | 1X2, Double Chance, DNB, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap (half-line + whole-line void model), 1X2-1UP (wins when team goes 1 ahead at any point), 1X2-2UP (wins on outright win or going 2 ahead), Team O/U (0.5/1.5/2.5) |
 | **Parlay Builder** | Real-time combined odds & win probability, pick-swap with amber downgrade badges, history, outcome settling, simulated ROI |
 | **Quota-Aware Fetching** | `fetch-upcoming` pre-computes request budget and fetches only fixtures relevant to the coming weekend — perfect for 100 req/day free tier |
 | **Mobile-First UI** | Bottom nav, card picks, parlay bottom sheet, fixture cards — fully responsive at ≤ 768 px |
@@ -220,8 +220,8 @@ footy calibrate [--reset]
 | Win to Nil | `win_to_nil` | Win without conceding |
 | Win Either Half | `win_either_half` | Win at least one half (WEH blend model) |
 | Asian Handicap | `asian_handicap` | Half-line & whole-line with void model |
-| 1X2-1UP | `1x2_1up` | Win after going 1 goal behind (lead-trigger) |
-| 1X2-2UP | `1x2_2up` | Win after going 2 goals behind (lead-trigger) |
+| 1X2-1UP | `1x2_1up` | Wins if team goes ≥1 goal ahead at any point, regardless of final result |
+| 1X2-2UP | `1x2_2up` | Wins if team wins outright **OR** goes ≥2 goals ahead at any point (early-exit safeguard) |
 | Team O/U 0.5 | `team_ou_0.5` | Individual team goal threshold |
 | Team O/U 1.5 | `team_ou_1.5` | Individual team goal threshold |
 | Team O/U 2.5 | `team_ou_2.5` | Individual team goal threshold |
