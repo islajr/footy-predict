@@ -204,6 +204,38 @@ def _shrink_1x2(p_home: float, p_draw: float, p_away: float) -> tuple[float, flo
     return _normalise_3way(sh, sd, sa)
 
 
+
+
+def _shrink_lambda(lam: float, league_mean: float = 1.35) -> float:
+    """Shrink a raw GPG-derived Poisson λ toward the league mean.
+
+    Raw GPG from recent form is inflated: teams on a scoring run will show
+    2.2+ GPG from their last 10 matches, but their true sustainable rate is
+    closer to the league average.  The simulation showed Team O/U 1.5 in
+    HIGH tier hitting 55.6% at stated 91% — the same overconfidence pattern
+    as 1X2 probabilities, just in the Poisson domain.
+
+    Shrinkage formula (same principle as _shrink_1x2):
+        λ_shrunk = league_mean + SHRINK × (λ_raw − league_mean)
+    SHRINK = 0.75 → 25% regression toward the mean.
+
+    Examples:
+        λ=2.2  → 1.35 + 0.75×(2.2−1.35) = 1.35 + 0.64 = 1.99
+        λ=1.5  → 1.35 + 0.75×0.15 = 1.46
+        λ=0.9  → 1.35 + 0.75×(−0.45) = 1.01  (clamps up to floor)
+
+    Args:
+        lam: Raw GPG-based Poisson rate.
+        league_mean: League average goals per team per game (~1.35 European).
+
+    Returns:
+        Shrunk lambda, clamped to [0.3, 3.0].
+    """
+    SHRINK = 0.75
+    shrunk = league_mean + SHRINK * (lam - league_mean)
+    return max(0.3, min(3.0, shrunk))
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Rationale helpers (shared prose builders)
 # ═══════════════════════════════════════════════════════════════
@@ -565,6 +597,12 @@ def model_over_under(
         expected_total = home_gpg + away_gpg
     else:
         home_gpg, away_gpg, expected_total = 1.3, 1.1, 2.4
+
+    # Apply regression-to-mean on raw GPG before Poisson calculation.
+    # Form-based GPG is inflated; shrink 25% toward league mean (1.35).
+    home_gpg = _shrink_lambda(home_gpg)
+    away_gpg = _shrink_lambda(away_gpg)
+    expected_total = home_gpg + away_gpg
 
     # ── Poisson probability (preferred) ──────────────────────────
     _poisson_key_map = {
@@ -981,6 +1019,14 @@ def model_win_to_nil(
     home_cs = _get_cs("home")
     away_cs = _get_cs("away")
 
+    # Shrink raw CS rates toward the league mean (0.30 European average).
+    # A team on a 5-game clean sheet run will show CS=0.50+, but that's
+    # not sustainable. Apply 25% regression: CS_shrunk = 0.30 + 0.75*(CS-0.30).
+    CS_MEAN = 0.30
+    CS_SHRINK = 0.75
+    home_cs = CS_MEAN + CS_SHRINK * (home_cs - CS_MEAN)
+    away_cs = CS_MEAN + CS_SHRINK * (away_cs - CS_MEAN)
+
     # ── Scoring participation (for the No rationale) ──────────────
     p_away_scores = patterns.get("poisson_away_over_0_5") if patterns else None
     p_home_scores = patterns.get("poisson_home_over_0_5") if patterns else None
@@ -1162,18 +1208,22 @@ def model_win_either_half(
     # 1. Outright quality (45%): team needs to be good enough to dominate a period
     # 2. Historical WEH rate (35%): how often has the team actually won a half recently?
     # 3. First-half goal timing (20%): early-goal tendency captures partial-period dominance
-    p_home_base = p_home_win * 1.35  # outright win + WEH bonus
-    p_away_base = p_away_win * 1.35
+    #
+    # Multiplier reduced 1.35 → 1.15: simulation showed WEH HIGH hitting 61% at
+    # stated 89% — the 1.35 bonus was too aggressive. WEH is more achievable than
+    # an outright win, but not 35% more likely. Output capped at 0.82.
+    p_home_base = min(0.82, p_home_win * 1.15)
+    p_away_base = min(0.82, p_away_win * 1.15)
 
     if home_weh_hist is not None:
-        p_home_weh = min(0.95, 0.45 * p_home_base + 0.35 * home_weh_hist + 0.20 * home_1h_win_rate)
+        p_home_weh = min(0.82, 0.45 * p_home_base + 0.35 * home_weh_hist + 0.20 * home_1h_win_rate)
     else:
-        p_home_weh = min(0.95, p_home_base * 0.85 + home_1h_win_rate * 0.15)
+        p_home_weh = min(0.82, p_home_base * 0.85 + home_1h_win_rate * 0.15)
 
     if away_weh_hist is not None:
-        p_away_weh = min(0.95, 0.45 * p_away_base + 0.35 * away_weh_hist + 0.20 * away_1h_win_rate)
+        p_away_weh = min(0.82, 0.45 * p_away_base + 0.35 * away_weh_hist + 0.20 * away_1h_win_rate)
     else:
-        p_away_weh = min(0.95, p_away_base * 0.85 + away_1h_win_rate * 0.15)
+        p_away_weh = min(0.82, p_away_base * 0.85 + away_1h_win_rate * 0.15)
 
     timing_note_h = ""
     if timing and timing.confidence > 0.3:
@@ -1272,6 +1322,10 @@ def model_team_over_under(
         away_gpg = away_base if away_venue is None else (0.7 * away_base + 0.3 * away_venue)
     else:
         home_gpg, away_gpg = 1.3, 1.1
+
+    # Shrink form-based GPG toward league mean before Poisson calculation.
+    home_gpg = _shrink_lambda(home_gpg)
+    away_gpg = _shrink_lambda(away_gpg)
 
     # ── Probabilities ─────────────────────────────────────────────
     if line == 0.5:

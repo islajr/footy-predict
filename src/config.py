@@ -394,6 +394,15 @@ CONFIDENCE_THRESHOLDS: dict[str, float] = {
     "LOW":    0.00,
 }
 
+# Minimum implied odds for the "value zone" filter.
+# Rationale: our implied_odds = 1/P(model). SportyBet applies ~10% margin,
+# so their offered odds ≈ model_odds × 0.90. To target real odds ≥ 1.20,
+# filter at model implied_odds ≥ 1.32 (= 1.20 / 0.90).
+# Range 1.30-1.35 is the user's stated preference; 1.32 is the default.
+# Override via environment: VALUE_MIN_ODDS=1.25 python -m footy ...
+VALUE_MIN_ODDS: float = float(os.environ.get("VALUE_MIN_ODDS", "1.32"))
+
+
 # Minimum recorded predictions before the calibrator starts adjusting weights
 MIN_PREDICTIONS_FOR_CALIBRATION = 100
 
