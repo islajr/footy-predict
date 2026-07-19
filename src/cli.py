@@ -13,8 +13,9 @@ Command tree::
     ├── analyze
     │   ├── matchweek [--league SLUG]  Analyse next matchweek
     │   └── match "Team A vs Team B"   Deep-dive on a specific fixture
-    ├── picks [--min-confidence LVL] [--market CODE]   All recommendations, tiered by confidence
-    ├── parlay --size N                Parlay suggestion
+    ├── picks [--min-confidence LVL] [--market CODE] [--min-odds N]  Recommendations, tiered by confidence
+    ├── parlay --size N [--min-odds N] Parlay suggestion
+    ├── report [--min-odds N] [--days N]  Weekly decision-support pick report
     ├── record                         Record results for finished matches
     ├── accuracy [--market M] [--lg L] Accuracy dashboard
     ├── calibrate                      Run weight calibration
@@ -537,12 +538,20 @@ def analyze_match(ctx: click.Context, fixture: str) -> None:
     "--market", "-m", default=None,
     help="Filter to a specific market code (e.g. 'over-under-2.5', '1x2', 'win-to-nil').",
 )
+@click.option(
+    "--min-odds", "-o", default=0.0, type=float,
+    help=(
+        "Minimum model implied odds (e.g. 1.32 ≈ 1.20 real odds after bookmaker margin). "
+        "Default: 0.0 (show all). Set VALUE_MIN_ODDS env var for a persistent default."
+    ),
+)
 @click.pass_context
 def picks(
     ctx: click.Context,
     min_confidence: str | None,
     league: str | None,
     market: str | None,
+    min_odds: float,
 ) -> None:
     """Show all picks from the latest analysis, tiered by confidence.
 
@@ -552,7 +561,12 @@ def picks(
 
     Use --min-confidence to restrict to a specific tier and above.
     Use --market to filter to a single market code.
+    Use --min-odds to apply a value floor (e.g. 1.32 targets ≥1.20 real odds).
+
+    The value zone is defined as HIGH confidence + implied odds ≥ min-odds.
+    The system surface evidence and rationale — you make the final pick decision.
     """
+    from src.config import VALUE_MIN_ODDS
     db = ctx.obj["db"]
 
     from src.analysis.engine import AnalysisEngine
@@ -570,7 +584,10 @@ def picks(
         league_slug=league, from_date=from_date, to_date=to_date
     )
 
-    # Apply market filter at the recommendation level if requested
+    # Effective odds floor: explicit arg overrides config default
+    odds_floor = min_odds if min_odds > 0 else 0.0  # 0.0 = no filter unless user sets one
+
+    # Apply market filter
     if market:
         mkt_lower = market.lower()
         for analysis in analyses:
@@ -581,6 +598,13 @@ def picks(
             ]
             if hasattr(analysis, "market_recommendations"):
                 object.__setattr__(analysis, "market_recommendations", filtered_recs)
+
+    # Apply odds filter
+    if odds_floor > 0:
+        for analysis in analyses:
+            recs = getattr(analysis, "market_recommendations", [])
+            filtered_recs = [r for r in recs if getattr(r, "implied_odds", 0) >= odds_floor]
+            object.__setattr__(analysis, "market_recommendations", filtered_recs)
 
     if not analyses:
         console.print("[yellow]No upcoming matches found.[/yellow]")
@@ -594,9 +618,15 @@ def picks(
 
     tier_note = f" (≥ {min_confidence.upper()})" if min_confidence else " (all tiers)"
     mkt_note = f" — market: {market}" if market else ""
+    odds_note = f" — odds ≥ {odds_floor:.2f}" if odds_floor > 0 else ""
     console.print(
-        f"\n[green]✓ {len(analyses)} match(es) analysed{tier_note}{mkt_note}[/green]"
+        f"\n[green]✓ {len(analyses)} match(es) analysed{tier_note}{mkt_note}{odds_note}[/green]"
     )
+    if odds_floor == 0 and min_confidence and min_confidence.upper() == "HIGH":
+        console.print(
+            f"[dim]Tip: add --min-odds {VALUE_MIN_ODDS} to apply the value zone filter "
+            f"(≈ ≥1.20 real odds after bookmaker margin)[/dim]"
+        )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -609,9 +639,16 @@ def picks(
               type=click.Choice(["HIGH", "MEDIUM", "LOW"], case_sensitive=False),
               help="Minimum confidence for included picks.")
 @click.option("--league", "-l", default=None, help="League slug filter.")
+@click.option(
+    "--min-odds", "-o", default=0.0, type=float,
+    help="Minimum model implied odds for parlay picks (e.g. 1.32). Default: 0.0 (no filter).",
+)
 @click.pass_context
-def parlay(ctx: click.Context, size: int, min_confidence: str, league: str | None) -> None:
-    """Suggest picks for a parlay of N games."""
+def parlay(ctx: click.Context, size: int, min_confidence: str, league: str | None, min_odds: float) -> None:
+    """Suggest picks for a parlay of N games.
+
+    Use --min-odds 1.32 to restrict to value zone picks (≈ ≥1.20 real SportyBet odds).
+    """
     db = ctx.obj["db"]
 
     from src.analysis.engine import AnalysisEngine
@@ -627,6 +664,13 @@ def parlay(ctx: click.Context, size: int, min_confidence: str, league: str | Non
 
     analyses = engine.analyze_matchweek(league_slug=league, from_date=from_date, to_date=to_date)
     parlay_picks = engine.suggest_parlay(analyses, size=size, min_confidence=min_confidence.upper())
+
+    # Apply odds floor — remove picks below the value zone threshold
+    if min_odds > 0:
+        parlay_picks = [
+            (a, r) for a, r in parlay_picks
+            if getattr(r, "implied_odds", 0) >= min_odds
+        ]
 
     if not parlay_picks:
         console.print("[yellow]Not enough qualifying picks for the requested parlay size.[/yellow]")
@@ -884,3 +928,230 @@ def _store_predictions(db, analyses) -> int:
                 pass
 
     return count
+
+
+# ═══════════════════════════════════════════════════════════════
+#  report — Weekly decision-support pick report
+# ═══════════════════════════════════════════════════════════════
+
+@cli.command()
+@click.option(
+    "--min-odds", "-o", default=None, type=float,
+    help="Minimum model implied odds (default: VALUE_MIN_ODDS from config, currently 1.32).",
+)
+@click.option(
+    "--min-confidence", "-c", default="HIGH",
+    type=click.Choice(["HIGH", "MEDIUM", "LOW"], case_sensitive=False),
+    help="Minimum confidence tier to include. Default: HIGH.",
+)
+@click.option("--league", "-l", default=None, help="League slug filter.")
+@click.option(
+    "--days", "-d", default=7, type=int,
+    help="How many days ahead to look for fixtures. Default: 7.",
+)
+@click.option(
+    "--output", "-f", default=None, type=click.Path(),
+    help="Optional file path to save the report (plain text).",
+)
+@click.pass_context
+def report(
+    ctx: click.Context,
+    min_odds: float | None,
+    min_confidence: str,
+    league: str | None,
+    days: int,
+    output: str | None,
+) -> None:
+    """Generate a weekly decision-support pick report.
+
+    Shows the best value-zone pick(s) per upcoming fixture with full rationale,
+    key factors for and against, and alternative picks. Designed to be read
+    alongside your own research — the system surfaces evidence, you decide.
+
+    \b
+    Value zone = HIGH confidence AND implied odds >= min-odds.
+    Default min-odds: 1.32 (targets approx. 1.20 real SportyBet odds after margin).
+
+    \b
+    Examples:
+        footy report                           # next 7 days, HIGH, odds>=1.32
+        footy report --days 3                  # this weekend only
+        footy report --min-odds 1.40           # stricter odds floor
+        footy report --min-confidence MEDIUM   # include MEDIUM picks too
+        footy report --output weekend.txt      # save to file
+    """
+    from src.config import VALUE_MIN_ODDS
+    from src.analysis.engine import AnalysisEngine
+    from src.tracking.calibrator import Calibrator
+    from rich.rule import Rule
+
+    db = ctx.obj["db"]
+    weights = Calibrator.load_weights()
+    engine = AnalysisEngine(db, weights=weights)
+
+    odds_floor = min_odds if min_odds is not None else VALUE_MIN_ODDS
+    conf_floor = min_confidence.upper()
+
+    from_date = datetime.now().strftime("%Y-%m-%d")
+    to_date = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+    analyses = engine.analyze_matchweek(
+        league_slug=league, from_date=from_date, to_date=to_date
+    )
+
+    if not analyses:
+        console.print("[yellow]No upcoming matches found in the selected window.[/yellow]")
+        return
+
+    # Confidence tier ordering
+    _tier_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
+    _conf_floor_val = _tier_order.get(conf_floor, 0)
+
+    def _passes(rec) -> bool:
+        tier_ok = _tier_order.get(getattr(rec, "confidence", "LOW"), 2) <= _conf_floor_val
+        odds_ok = getattr(rec, "implied_odds", 0) >= odds_floor
+        return tier_ok and odds_ok
+
+    _conf_colours = {"HIGH": "green bold", "MEDIUM": "yellow", "LOW": "dim"}
+    _conf_icons = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "⚪"}
+
+    # ── Header ─────────────────────────────────────────────────────
+    lines: list[str] = []
+
+    date_range = f"{from_date}  →  {to_date}"
+    header = (
+        f"\n[bold cyan]FOOTY PREDICT — WEEKEND PICKS REPORT[/bold cyan]\n"
+        f"[dim]{date_range}  ·  {conf_floor}+ confidence  ·  odds ≥ {odds_floor:.2f} (model)  "
+        f"≈ ≥{odds_floor * 0.90:.2f} real SportyBet odds[/dim]"
+    )
+    console.print(header)
+    console.print(Rule(style="cyan"))
+
+    total_value_picks = 0
+    matches_with_picks = 0
+
+    for analysis in analyses:
+        recs = getattr(analysis, "market_recommendations", [])
+        value_recs = [r for r in recs if _passes(r)]
+
+        if not value_recs:
+            continue
+
+        # Sort: highest probability first within tier
+        value_recs.sort(key=lambda r: (-_tier_order.get(r.confidence, 2), -r.probability))
+
+        top = value_recs[0]
+        alternates = value_recs[1:5]  # up to 4 alternates
+
+        matches_with_picks += 1
+        total_value_picks += len(value_recs)
+
+        home = getattr(analysis, "home_team", "Home")
+        away = getattr(analysis, "away_team", "Away")
+        league_name = getattr(analysis, "league", "")
+        match_date = getattr(analysis, "match_date", "")
+        dq = getattr(analysis, "data_quality", "MEDIUM")
+        risks = getattr(analysis, "risk_flags", [])
+
+        # ── Match header ──────────────────────────────────────────
+        dq_colour = {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(dq, "white")
+        console.print(
+            f"\n  [bold white]{home}[/bold white] [dim]vs[/dim] [bold white]{away}[/bold white]"
+            f"  [dim]{league_name}  ·  {match_date}[/dim]"
+            f"  [dim]data:[/dim] [{dq_colour}]{dq}[/{dq_colour}]"
+        )
+
+        # ── Top pick ─────────────────────────────────────────────
+        conf_c = _conf_colours.get(top.confidence, "white")
+        conf_i = _conf_icons.get(top.confidence, "⚪")
+        console.print(
+            f"  {conf_i} [bold]TOP PICK:[/bold]  "
+            f"[{conf_c}]{top.pick}[/{conf_c}]"
+            f"  [cyan]{top.probability:.0%}[/cyan]"
+            f"  [yellow]{top.implied_odds:.2f} odds[/yellow]"
+            f"  [{conf_c}]{top.confidence}[/{conf_c}]"
+        )
+
+        # Rationale (first 200 chars for brevity)
+        rationale = getattr(top, "rationale", "") or ""
+        if rationale:
+            short = rationale[:220].rstrip()
+            if len(rationale) > 220:
+                short += "…"
+            console.print(f"  [dim]  {short}[/dim]")
+
+        # Risk flags
+        if risks:
+            console.print(f"  [red dim]  ⚠ {' · '.join(risks[:3])}[/red dim]")
+
+        # Alternates
+        if alternates:
+            alt_parts = []
+            for a in alternates:
+                alt_parts.append(
+                    f"[dim]{a.pick}[/dim] [cyan]{a.probability:.0%}[/cyan] [yellow]{a.implied_odds:.2f}[/yellow]"
+                )
+            console.print("  [dim]  Also:[/dim] " + "  [dim]·[/dim] ".join(alt_parts))
+
+        console.print(Rule(style="dim", characters="─"))
+
+    # ── Summary ────────────────────────────────────────────────────
+    if matches_with_picks == 0:
+        console.print(
+            f"\n[yellow]No value zone picks found (conf ≥ {conf_floor}, odds ≥ {odds_floor:.2f}).[/yellow]\n"
+            f"[dim]Try: footy report --min-odds 1.20 --min-confidence MEDIUM[/dim]"
+        )
+        return
+
+    console.print(
+        f"\n[green bold]✓ {matches_with_picks} matches · {total_value_picks} value zone picks[/green bold]"
+        f"  [dim](conf ≥ {conf_floor} · odds ≥ {odds_floor:.2f})[/dim]"
+    )
+    console.print(
+        "[dim]Note: odds shown are model implied odds (1/P). "
+        "Real SportyBet odds ≈ model odds × 0.90 after bookmaker margin. "
+        "This report is decision-support — do your own research before placing bets.[/dim]\n"
+    )
+
+    # Optional file output (plain text, no Rich markup)
+    if output:
+        try:
+            import re
+            _ansi_strip = re.compile(r"\[/?[a-z /#]+\]")
+
+            with open(output, "w") as f:
+                f.write(f"FOOTY PREDICT — WEEKEND PICKS REPORT\n")
+                f.write(f"{date_range} · {conf_floor}+ · odds≥{odds_floor:.2f}\n")
+                f.write("=" * 70 + "\n\n")
+
+                for analysis in analyses:
+                    recs = getattr(analysis, "market_recommendations", [])
+                    value_recs = [r for r in recs if _passes(r)]
+                    if not value_recs:
+                        continue
+                    value_recs.sort(
+                        key=lambda r: (-_tier_order.get(r.confidence, 2), -r.probability)
+                    )
+                    top = value_recs[0]
+                    home = getattr(analysis, "home_team", "Home")
+                    away = getattr(analysis, "away_team", "Away")
+                    league_name = getattr(analysis, "league", "")
+                    match_date = getattr(analysis, "match_date", "")
+                    f.write(f"{home} vs {away}  |  {league_name}  |  {match_date}\n")
+                    f.write(
+                        f"  TOP: {top.pick}  {top.probability:.0%}  {top.implied_odds:.2f} odds  {top.confidence}\n"
+                    )
+                    rationale = getattr(top, "rationale", "") or ""
+                    if rationale:
+                        f.write(f"  {rationale[:200]}\n")
+                    if len(value_recs) > 1:
+                        alts = "  Also: " + "  |  ".join(
+                            f"{r.pick} {r.probability:.0%} {r.implied_odds:.2f}"
+                            for r in value_recs[1:5]
+                        )
+                        f.write(alts + "\n")
+                    f.write("-" * 70 + "\n")
+
+            console.print(f"[green]Report saved → {output}[/green]")
+        except Exception as e:
+            console.print(f"[red]Could not save report: {e}[/red]")
