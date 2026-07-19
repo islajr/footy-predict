@@ -389,7 +389,7 @@ assert abs(sum(FACTOR_WEIGHTS.values()) - 1.0) < 1e-9, (
 # ═══════════════════════════════════════════════════════════════
 
 CONFIDENCE_THRESHOLDS: dict[str, float] = {
-    "HIGH":   0.75,
+    "HIGH":   0.80,   # raised from 0.75 — post-shrinkage 0.80 = genuinely confident
     "MEDIUM": 0.60,
     "LOW":    0.00,
 }
