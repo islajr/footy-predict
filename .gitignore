@@ -34,3 +34,7 @@ Thumbs.db
 
 # Antigravity CLI
 .antigravitycli/
+
+# CLI Guide PDF
+cli_guide.pdf
+
