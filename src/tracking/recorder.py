@@ -8,15 +8,21 @@ records whether the pick was correct via ``Database.record_result``.
 
 Supported markets
 -----------------
-- ``1x2``            — Full-time result (Home / Draw / Away)
-- ``double-chance``  — Any two of 1X, X2, 12
-- ``over-under-X``   — Total goals vs a numeric line
-- ``gg-ng``          — Both Teams To Score / No Goal
-- ``draw-no-bet``    — Result (void if draw)
-- ``win-to-nil``     — Win + clean sheet
-- ``win-either-half``— Win at least one half
-- ``handicap``       — Goal handicap applied before result check
-- ``team-over-under``— Individual team goals vs line
+- ``1x2``                         — Full-time result (Home / Draw / Away)
+- ``double-chance``                — Any two of 1X, X2, 12
+- ``over-under-X``                 — Total goals vs a numeric line
+- ``gg-ng``                        — Both Teams To Score / No Goal
+- ``draw-no-bet``                  — Result (void if draw)
+- ``win-to-nil``                   — Win + clean sheet
+- ``win-either-half``              — Win at least one half
+- ``handicap``                     — Goal handicap applied before result check
+- ``team-over-under``              — Individual team goals vs line
+- ``first-half-over-under-X``      — Total 1st half goals vs line
+- ``second-half-over-under-X``     — Total 2nd half goals vs line
+- ``home-team-first-half-over-under-X``  — Home team 1st half goals vs line
+- ``home-team-second-half-over-under-X`` — Home team 2nd half goals vs line
+- ``away-team-first-half-over-under-X``  — Away team 1st half goals vs line
+- ``away-team-second-half-over-under-X`` — Away team 2nd half goals vs line
 """
 
 from __future__ import annotations
