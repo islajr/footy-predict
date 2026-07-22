@@ -1734,6 +1734,448 @@ def model_lead_trigger(
     ]
 
 
+
+# ═══════════════════════════════════════════════════════════════
+#  Half-Time & Second-Half Markets
+# ═══════════════════════════════════════════════════════════════
+
+# European football averages (used as shrinkage priors for half-time)
+_FH_GOAL_MEAN_PER_TEAM = 0.50  # avg goals per team in first 45 mins
+_SH_GOAL_MEAN_PER_TEAM = 0.56  # avg goals per team in second 45 mins
+
+
+def _half_lambdas(
+    factors: list[FactorResult],
+    half: str,
+) -> tuple[float, float, float, float]:
+    """Derive per-team, per-half Poisson lambdas from scoring + timing factors.
+
+    Uses the goal_timing factor's per-team first/second half goal percentage
+    (``first_half_pct`` / ``second_half_pct``) applied to the shrunk FT lambda
+    from the scoring_frequency factor.
+
+    Falls back to the European half-time prior when timing data is absent.
+
+    Args:
+        factors: List of FactorResult from the analysis engine.
+        half: ``"first"`` or ``"second"``.
+
+    Returns:
+        ``(home_ht_lam, away_ht_lam, home_gpg_ft, away_gpg_ft)`` — all shrunk.
+    """
+    scoring = _get_factor(factors, "scoring_frequency")
+    timing = _get_factor(factors, "goal_timing")
+
+    # ── FT lambdas ────────────────────────────────────────────────
+    if scoring and scoring.data_points:
+        dp = scoring.data_points
+        home_base = dp.get("home_gpg") or 1.3
+        home_venue = dp.get("home_home_gpg")
+        home_gpg = home_base if home_venue is None else 0.7 * home_base + 0.3 * home_venue
+
+        away_base = dp.get("away_gpg") or 1.1
+        away_venue = dp.get("away_away_gpg")
+        away_gpg = away_base if away_venue is None else 0.7 * away_base + 0.3 * away_venue
+    else:
+        home_gpg, away_gpg = 1.3, 1.1
+
+    # Shrink FT lambda toward league mean (same as main O/U model)
+    home_gpg = _shrink_lambda(home_gpg)
+    away_gpg = _shrink_lambda(away_gpg)
+
+    # ── Half-specific percentage ───────────────────────────────────
+    prior = _FH_GOAL_MEAN_PER_TEAM if half == "first" else _SH_GOAL_MEAN_PER_TEAM
+    pct_key = "first_half_pct" if half == "first" else "second_half_pct"
+
+    h_td = (timing.data_points.get("home") or {}) if timing else {}
+    a_td = (timing.data_points.get("away") or {}) if timing else {}
+
+    h_pct = h_td.get(pct_key, prior / home_gpg if home_gpg > 0 else 0.44)
+    a_pct = a_td.get(pct_key, prior / away_gpg if away_gpg > 0 else 0.44)
+
+    # ── Half lambdas with per-half prior shrinkage ─────────────────
+    # Shrink the derived half lambda toward the half-specific prior:
+    # λ_half = 0.25 × prior + 0.75 × (FT_λ × pct)
+    HALF_SHRINK = 0.25
+    home_half_lam = HALF_SHRINK * prior + (1 - HALF_SHRINK) * (home_gpg * h_pct)
+    away_half_lam = HALF_SHRINK * prior + (1 - HALF_SHRINK) * (away_gpg * a_pct)
+
+    home_half_lam = max(0.10, min(2.5, home_half_lam))
+    away_half_lam = max(0.10, min(2.5, away_half_lam))
+
+    return home_half_lam, away_half_lam, home_gpg, away_gpg
+
+
+def _ou_with_correction(
+    lam: float,
+    line: float,
+) -> tuple[float, float]:
+    """Compute Over/Under probabilities with Dixon-Coles near-line correction.
+
+    Args:
+        lam: Total expected goals (Poisson lambda).
+        line: Goal line (e.g. 0.5, 1.5).
+
+    Returns:
+        ``(p_over, p_under)`` after correction.
+    """
+    import math as _math
+    # Poisson CDF: P(X <= k) = sum_{i=0}^{k} e^{-lam} * lam^i / i!
+    # P(Over line) = 1 - P(X <= floor(line))
+    k_max = int(line)  # for line=0.5 → 0; line=1.5 → 1
+    p_at_most_k = 0.0
+    for k in range(k_max + 1):
+        p_at_most_k += _math.exp(-lam) * (lam ** k) / _math.factorial(k)
+    p_over = 1.0 - p_at_most_k
+    p_over = max(0.0, min(1.0, p_over))
+
+    # Dixon-Coles shrinkage toward 0.5 when expected total is close to line
+    dist = abs(lam - (line + 0.5))
+    if dist < 0.6:
+        shrink = 0.65 + 0.35 * (dist / 0.6)
+        p_over = 0.5 + shrink * (p_over - 0.5)
+
+    return p_over, 1.0 - p_over
+
+
+def model_first_half_over_under(
+    overall_score: float,
+    factors: list[FactorResult],
+    patterns: dict[str, Any] | None = None,
+    line: float = 0.5,
+) -> list[MarketRecommendation]:
+    """1st Half Total Goals Over/Under for a given line (0.5, 1.5).
+
+    Derives expected first-half goals from the ``goal_timing`` factor's
+    per-team H1 goal percentage applied to the shrunk FT lambda.
+
+    Args:
+        overall_score: Weighted aggregate factor score.
+        factors: List of FactorResult instances.
+        patterns: Historical pattern data (unused — HT data comes from factors).
+        line: Goal line — 0.5 or 1.5.
+
+    Returns:
+        List of two ``MarketRecommendation`` objects (Over and Under).
+    """
+    home_lam, away_lam, home_gpg, away_gpg = _half_lambdas(factors, "first")
+    total_lam = home_lam + away_lam
+    line_str = f"{line:g}"
+
+    p_over, p_under = _ou_with_correction(total_lam, line)
+
+    market_code = f"first-half-over-under-{line_str}"
+    market_name = f"1st Half Over/Under {line_str}"
+
+    over_rationale = (
+        f"Expected {total_lam:.2f} 1st-half goals "
+        f"(home {home_lam:.2f} + away {away_lam:.2f}, "
+        f"derived from FT lambdas {home_gpg:.1f}/{away_gpg:.1f}). "
+        f"1st Half Over {line_str} probability: {p_over:.0%}."
+    )
+    under_rationale = (
+        f"Expected {total_lam:.2f} 1st-half goals. "
+        f"1st Half Under {line_str} probability: {p_under:.0%}."
+    )
+
+    stats = {
+        "expected_ht_total": round(total_lam, 2),
+        "home_ht_lambda": round(home_lam, 2),
+        "away_ht_lambda": round(away_lam, 2),
+        "half": "first",
+        "line": line,
+    }
+
+    return [
+        MarketRecommendation(
+            market_code=market_code,
+            market_name=market_name,
+            pick=f"1st Half Over {line_str}",
+            probability=round(p_over, 4),
+            confidence=_classify_confidence(p_over),
+            implied_odds=_implied_odds(p_over),
+            rationale=over_rationale,
+            risk_factors=(
+                ["Very close to the line — genuine 50/50"] if abs(p_over - 0.5) < 0.07 else []
+            ),
+            supporting_stats=stats,
+        ),
+        MarketRecommendation(
+            market_code=market_code,
+            market_name=market_name,
+            pick=f"1st Half Under {line_str}",
+            probability=round(p_under, 4),
+            confidence=_classify_confidence(p_under),
+            implied_odds=_implied_odds(p_under),
+            rationale=under_rationale,
+            risk_factors=[],
+            supporting_stats=stats,
+        ),
+    ]
+
+
+def model_second_half_over_under(
+    overall_score: float,
+    factors: list[FactorResult],
+    patterns: dict[str, Any] | None = None,
+    line: float = 0.5,
+) -> list[MarketRecommendation]:
+    """2nd Half Total Goals Over/Under for a given line (0.5, 1.5).
+
+    Second-half goal rates tend to be slightly higher than first-half in
+    European football (~56% of goals scored in the second 45 minutes).
+    This model uses the ``goal_timing`` second_half_pct per team.
+
+    Args:
+        overall_score: Weighted aggregate factor score.
+        factors: List of FactorResult instances.
+        patterns: Historical pattern data.
+        line: Goal line — 0.5 or 1.5.
+
+    Returns:
+        List of two ``MarketRecommendation`` objects (Over and Under).
+    """
+    home_lam, away_lam, home_gpg, away_gpg = _half_lambdas(factors, "second")
+    total_lam = home_lam + away_lam
+    line_str = f"{line:g}"
+
+    p_over, p_under = _ou_with_correction(total_lam, line)
+
+    market_code = f"second-half-over-under-{line_str}"
+    market_name = f"2nd Half Over/Under {line_str}"
+
+    over_rationale = (
+        f"Expected {total_lam:.2f} 2nd-half goals "
+        f"(home {home_lam:.2f} + away {away_lam:.2f}, "
+        f"derived from FT lambdas {home_gpg:.1f}/{away_gpg:.1f}). "
+        f"2nd Half Over {line_str} probability: {p_over:.0%}."
+    )
+    under_rationale = (
+        f"Expected {total_lam:.2f} 2nd-half goals. "
+        f"2nd Half Under {line_str} probability: {p_under:.0%}."
+    )
+
+    stats = {
+        "expected_sh_total": round(total_lam, 2),
+        "home_sh_lambda": round(home_lam, 2),
+        "away_sh_lambda": round(away_lam, 2),
+        "half": "second",
+        "line": line,
+    }
+
+    return [
+        MarketRecommendation(
+            market_code=market_code,
+            market_name=market_name,
+            pick=f"2nd Half Over {line_str}",
+            probability=round(p_over, 4),
+            confidence=_classify_confidence(p_over),
+            implied_odds=_implied_odds(p_over),
+            rationale=over_rationale,
+            risk_factors=(
+                ["Very close to the line — genuine 50/50"] if abs(p_over - 0.5) < 0.07 else []
+            ),
+            supporting_stats=stats,
+        ),
+        MarketRecommendation(
+            market_code=market_code,
+            market_name=market_name,
+            pick=f"2nd Half Under {line_str}",
+            probability=round(p_under, 4),
+            confidence=_classify_confidence(p_under),
+            implied_odds=_implied_odds(p_under),
+            rationale=under_rationale,
+            risk_factors=[],
+            supporting_stats=stats,
+        ),
+    ]
+
+
+def model_team_first_half_over_under(
+    overall_score: float,
+    factors: list[FactorResult],
+    patterns: dict[str, Any] | None = None,
+    line: float = 0.5,
+) -> list[MarketRecommendation]:
+    """Per-team 1st Half Goals Over/Under for home and away sides.
+
+    Emits four picks per line: Home Team 1st Half Over/Under and
+    Away Team 1st Half Over/Under.  Each uses the team's own FT lambda
+    scaled by that team's historical first-half goal percentage.
+
+    Key use case: "Home Team 1st Half Over 0.5" at ~1.50 SportyBet odds
+    when the home side consistently scores before half-time.
+
+    Args:
+        overall_score: Weighted aggregate factor score.
+        factors: List of FactorResult instances.
+        patterns: Historical pattern data.
+        line: Goal line — 0.5 or 1.5.
+
+    Returns:
+        List of four ``MarketRecommendation`` objects.
+    """
+    home_lam, away_lam, home_gpg, away_gpg = _half_lambdas(factors, "first")
+    line_str = f"{line:g}"
+
+    h_over, h_under = _ou_with_correction(home_lam, line)
+    a_over, a_under = _ou_with_correction(away_lam, line)
+
+    home_market_code = f"home-team-first-half-over-under-{line_str}"
+    away_market_code = f"away-team-first-half-over-under-{line_str}"
+    home_market_name = f"Home Team 1st Half Over/Under {line_str}"
+    away_market_name = f"Away Team 1st Half Over/Under {line_str}"
+
+    home_stats = {
+        "team": "home",
+        "half": "first",
+        "line": line,
+        "team_ht_lambda": round(home_lam, 2),
+        "ft_lambda": round(home_gpg, 2),
+    }
+    away_stats = {
+        "team": "away",
+        "half": "first",
+        "line": line,
+        "team_ht_lambda": round(away_lam, 2),
+        "ft_lambda": round(away_gpg, 2),
+    }
+
+    recs = []
+    for (prob_over, prob_under, team_lam, stats, m_code, m_name, team_label) in [
+        (h_over, h_under, home_lam, home_stats, home_market_code, home_market_name, "Home"),
+        (a_over, a_under, away_lam, away_stats, away_market_code, away_market_name, "Away"),
+    ]:
+        recs.extend([
+            MarketRecommendation(
+                market_code=m_code,
+                market_name=m_name,
+                pick=f"{team_label} Team 1st Half Over {line_str}",
+                probability=round(prob_over, 4),
+                confidence=_classify_confidence(prob_over),
+                implied_odds=_implied_odds(prob_over),
+                rationale=(
+                    f"Expected {team_lam:.2f} 1st-half goals for {team_label.lower()} team "
+                    f"(FT λ {home_gpg if team_label == 'Home' else away_gpg:.1f}). "
+                    f"{team_label} Team 1st Half Over {line_str}: {prob_over:.0%}."
+                ),
+                risk_factors=(
+                    ["Close to the line — 50/50"] if abs(prob_over - 0.5) < 0.07 else []
+                ),
+                supporting_stats=stats,
+            ),
+            MarketRecommendation(
+                market_code=m_code,
+                market_name=m_name,
+                pick=f"{team_label} Team 1st Half Under {line_str}",
+                probability=round(prob_under, 4),
+                confidence=_classify_confidence(prob_under),
+                implied_odds=_implied_odds(prob_under),
+                rationale=(
+                    f"Expected {team_lam:.2f} 1st-half goals for {team_label.lower()} team. "
+                    f"{team_label} Team 1st Half Under {line_str}: {prob_under:.0%}."
+                ),
+                risk_factors=[],
+                supporting_stats=stats,
+            ),
+        ])
+
+    return recs
+
+
+def model_team_second_half_over_under(
+    overall_score: float,
+    factors: list[FactorResult],
+    patterns: dict[str, Any] | None = None,
+    line: float = 0.5,
+) -> list[MarketRecommendation]:
+    """Per-team 2nd Half Goals Over/Under for home and away sides.
+
+    Emits four picks per line: Home Team 2nd Half Over/Under and
+    Away Team 2nd Half Over/Under.  Second-half goal rates are typically
+    higher (~56% of a team's goals score after the break), making
+    Over picks slightly more probable than first-half equivalents.
+
+    Key use case: "Away Team 2nd Half Over 0.5" for sides that come
+    on strong late — often available at 1.35-1.55 on SportyBet.
+
+    Args:
+        overall_score: Weighted aggregate factor score.
+        factors: List of FactorResult instances.
+        patterns: Historical pattern data.
+        line: Goal line — 0.5 or 1.5.
+
+    Returns:
+        List of four ``MarketRecommendation`` objects.
+    """
+    home_lam, away_lam, home_gpg, away_gpg = _half_lambdas(factors, "second")
+    line_str = f"{line:g}"
+
+    h_over, h_under = _ou_with_correction(home_lam, line)
+    a_over, a_under = _ou_with_correction(away_lam, line)
+
+    home_market_code = f"home-team-second-half-over-under-{line_str}"
+    away_market_code = f"away-team-second-half-over-under-{line_str}"
+    home_market_name = f"Home Team 2nd Half Over/Under {line_str}"
+    away_market_name = f"Away Team 2nd Half Over/Under {line_str}"
+
+    home_stats = {
+        "team": "home",
+        "half": "second",
+        "line": line,
+        "team_sh_lambda": round(home_lam, 2),
+        "ft_lambda": round(home_gpg, 2),
+    }
+    away_stats = {
+        "team": "away",
+        "half": "second",
+        "line": line,
+        "team_sh_lambda": round(away_lam, 2),
+        "ft_lambda": round(away_gpg, 2),
+    }
+
+    recs = []
+    for (prob_over, prob_under, team_lam, stats, m_code, m_name, team_label) in [
+        (h_over, h_under, home_lam, home_stats, home_market_code, home_market_name, "Home"),
+        (a_over, a_under, away_lam, away_stats, away_market_code, away_market_name, "Away"),
+    ]:
+        recs.extend([
+            MarketRecommendation(
+                market_code=m_code,
+                market_name=m_name,
+                pick=f"{team_label} Team 2nd Half Over {line_str}",
+                probability=round(prob_over, 4),
+                confidence=_classify_confidence(prob_over),
+                implied_odds=_implied_odds(prob_over),
+                rationale=(
+                    f"Expected {team_lam:.2f} 2nd-half goals for {team_label.lower()} team "
+                    f"(FT λ {home_gpg if team_label == 'Home' else away_gpg:.1f}). "
+                    f"{team_label} Team 2nd Half Over {line_str}: {prob_over:.0%}."
+                ),
+                risk_factors=(
+                    ["Close to the line — 50/50"] if abs(prob_over - 0.5) < 0.07 else []
+                ),
+                supporting_stats=stats,
+            ),
+            MarketRecommendation(
+                market_code=m_code,
+                market_name=m_name,
+                pick=f"{team_label} Team 2nd Half Under {line_str}",
+                probability=round(prob_under, 4),
+                confidence=_classify_confidence(prob_under),
+                implied_odds=_implied_odds(prob_under),
+                rationale=(
+                    f"Expected {team_lam:.2f} 2nd-half goals for {team_label.lower()} team. "
+                    f"{team_label} Team 2nd Half Under {line_str}: {prob_under:.0%}."
+                ),
+                risk_factors=[],
+                supporting_stats=stats,
+            ),
+        ])
+
+    return recs
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Orchestrator
 # ═══════════════════════════════════════════════════════════════
@@ -1815,6 +2257,39 @@ def evaluate_all_markets(
         recommendations.extend(model_handicap(overall_score, factors, patterns))
     except Exception as e:
         logger.warning("Handicap model failed: %s", e)
+
+    # ── Half-time and second-half markets ────────────────────────────
+    for line in [0.5, 1.5]:
+        try:
+            recommendations.extend(
+                model_first_half_over_under(overall_score, factors, patterns, line=line)
+            )
+        except Exception as e:
+            logger.warning("1st Half O/U %.1f model failed: %s", line, e)
+
+    for line in [0.5, 1.5]:
+        try:
+            recommendations.extend(
+                model_second_half_over_under(overall_score, factors, patterns, line=line)
+            )
+        except Exception as e:
+            logger.warning("2nd Half O/U %.1f model failed: %s", line, e)
+
+    for line in [0.5, 1.5]:
+        try:
+            recommendations.extend(
+                model_team_first_half_over_under(overall_score, factors, patterns, line=line)
+            )
+        except Exception as e:
+            logger.warning("Team 1st Half O/U %.1f model failed: %s", line, e)
+
+    for line in [0.5, 1.5]:
+        try:
+            recommendations.extend(
+                model_team_second_half_over_under(overall_score, factors, patterns, line=line)
+            )
+        except Exception as e:
+            logger.warning("Team 2nd Half O/U %.1f model failed: %s", line, e)
 
     # Sort: HIGH first, then MEDIUM, then LOW; within each tier by probability desc
     confidence_order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}

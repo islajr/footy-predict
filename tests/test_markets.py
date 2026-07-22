@@ -513,8 +513,245 @@ def test_evaluate_all_markets_includes_lead_trigger(sample_factors):
 
 
 def test_evaluate_all_markets_count_phase_c(sample_factors):
-    """With lead-trigger picks added, total count should be >= 37."""
+    """Total pick count should include all new half-time markets."""
     recs = evaluate_all_markets(0.5, sample_factors)
-    # 1x2(3) + lead_trigger(4) + DC(3) + O/U x4 x2(8) + GG/NG(2) + DNB(2) + WtN(4) + WEH(2)
-    # + TeamOU x2 x4(8) + Handicap(1-3) = 37-39
-    assert len(recs) >= 37, f"Expected >= 37 picks with lead-trigger, got {len(recs)}"
+    # FH O/U: 2 lines × 2 picks = 4
+    # SH O/U: 2 lines × 2 picks = 4
+    # Team FH O/U: 2 lines × 4 picks = 8
+    # Team SH O/U: 2 lines × 4 picks = 8
+    # Total new: 24; prior total was ≥37 → now ≥61
+    assert len(recs) >= 61, f"Expected >= 61 picks with half-time markets, got {len(recs)}"
+
+
+# ═══════════════════════════════════════════════════════════════
+#  First Half Total O/U
+# ═══════════════════════════════════════════════════════════════
+
+from src.analysis.markets import (
+    model_first_half_over_under,
+    model_second_half_over_under,
+    model_team_first_half_over_under,
+    model_team_second_half_over_under,
+)
+
+
+def test_first_half_ou_returns_two_picks(sample_factors):
+    """model_first_half_over_under should return exactly 2 picks (Over + Under)."""
+    recs = model_first_half_over_under(0.4, sample_factors, line=0.5)
+    assert len(recs) == 2
+    picks = {r.pick for r in recs}
+    assert "1st Half Over 0.5" in picks
+    assert "1st Half Under 0.5" in picks
+
+
+def test_first_half_ou_probabilities_sum_to_one(sample_factors):
+    """Over + Under probabilities should sum to 1.0 (±0.001)."""
+    for line in [0.5, 1.5]:
+        recs = model_first_half_over_under(0.0, sample_factors, line=line)
+        p_over = next(r.probability for r in recs if "Over" in r.pick)
+        p_under = next(r.probability for r in recs if "Under" in r.pick)
+        assert abs(p_over + p_under - 1.0) < 0.001, (
+            f"H1 O/U {line}: {p_over} + {p_under} != 1.0"
+        )
+
+
+def test_first_half_ou_valid_probabilities(sample_factors):
+    """All 1st Half O/U probabilities must be in [0, 1]."""
+    for line in [0.5, 1.5]:
+        recs = model_first_half_over_under(0.3, sample_factors, line=line)
+        for r in recs:
+            assert 0.0 <= r.probability <= 1.0, f"Invalid probability {r.probability}"
+
+
+def test_first_half_ou_market_code(sample_factors):
+    """Market code should encode the line correctly."""
+    recs_05 = model_first_half_over_under(0.0, sample_factors, line=0.5)
+    recs_15 = model_first_half_over_under(0.0, sample_factors, line=1.5)
+    assert all(r.market_code == "first-half-over-under-0.5" for r in recs_05)
+    assert all(r.market_code == "first-half-over-under-1.5" for r in recs_15)
+
+
+def test_first_half_ou_implied_odds_consistent(sample_factors):
+    """Implied odds should be 1/probability (±0.05)."""
+    recs = model_first_half_over_under(0.2, sample_factors, line=0.5)
+    for r in recs:
+        expected_odds = round(1.0 / r.probability, 2) if r.probability > 0 else 100.0
+        assert abs(r.implied_odds - expected_odds) < 0.05
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Second Half Total O/U
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_second_half_ou_returns_two_picks(sample_factors):
+    """model_second_half_over_under should return exactly 2 picks."""
+    recs = model_second_half_over_under(0.4, sample_factors, line=0.5)
+    assert len(recs) == 2
+    picks = {r.pick for r in recs}
+    assert "2nd Half Over 0.5" in picks
+    assert "2nd Half Under 0.5" in picks
+
+
+def test_second_half_ou_probabilities_sum_to_one(sample_factors):
+    """SH Over + Under must sum to 1.0."""
+    for line in [0.5, 1.5]:
+        recs = model_second_half_over_under(0.0, sample_factors, line=line)
+        p_over = next(r.probability for r in recs if "Over" in r.pick)
+        p_under = next(r.probability for r in recs if "Under" in r.pick)
+        assert abs(p_over + p_under - 1.0) < 0.001
+
+
+def test_second_half_ou_higher_than_first_half(sample_factors):
+    """2nd half Over 0.5 probability should typically be >= 1st half (more goals in H2)."""
+    fh = model_first_half_over_under(0.3, sample_factors, line=0.5)
+    sh = model_second_half_over_under(0.3, sample_factors, line=0.5)
+    fh_over = next(r.probability for r in fh if "Over" in r.pick)
+    sh_over = next(r.probability for r in sh if "Over" in r.pick)
+    # H2 prior (0.56) > H1 prior (0.50), so SH Over should be >= FH Over at same score
+    assert sh_over >= fh_over - 0.05, (
+        f"SH Over {sh_over:.3f} unexpectedly much lower than FH Over {fh_over:.3f}"
+    )
+
+
+def test_second_half_ou_market_code(sample_factors):
+    """Second half market codes must contain 'second-half'."""
+    for line in [0.5, 1.5]:
+        recs = model_second_half_over_under(0.0, sample_factors, line=line)
+        for r in recs:
+            assert r.market_code.startswith("second-half-over-under"), (
+                f"Bad market code: {r.market_code}"
+            )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Per-Team First Half O/U
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_team_first_half_ou_returns_four_picks(sample_factors):
+    """model_team_first_half_over_under returns 4 picks (home/away × over/under)."""
+    recs = model_team_first_half_over_under(0.4, sample_factors, line=0.5)
+    assert len(recs) == 4
+
+
+def test_team_first_half_ou_expected_picks(sample_factors):
+    """All four expected pick labels should be present."""
+    recs = model_team_first_half_over_under(0.4, sample_factors, line=0.5)
+    picks = {r.pick for r in recs}
+    assert "Home Team 1st Half Over 0.5" in picks
+    assert "Home Team 1st Half Under 0.5" in picks
+    assert "Away Team 1st Half Over 0.5" in picks
+    assert "Away Team 1st Half Under 0.5" in picks
+
+
+def test_team_first_half_ou_home_probs_sum_to_one(sample_factors):
+    """Home Team FH Over + Under must sum to 1.0."""
+    recs = model_team_first_half_over_under(0.0, sample_factors, line=0.5)
+    home_over = next(r.probability for r in recs if r.pick == "Home Team 1st Half Over 0.5")
+    home_under = next(r.probability for r in recs if r.pick == "Home Team 1st Half Under 0.5")
+    assert abs(home_over + home_under - 1.0) < 0.001
+
+
+def test_team_first_half_ou_away_probs_sum_to_one(sample_factors):
+    """Away Team FH Over + Under must sum to 1.0."""
+    recs = model_team_first_half_over_under(0.0, sample_factors, line=0.5)
+    away_over = next(r.probability for r in recs if r.pick == "Away Team 1st Half Over 0.5")
+    away_under = next(r.probability for r in recs if r.pick == "Away Team 1st Half Under 0.5")
+    assert abs(away_over + away_under - 1.0) < 0.001
+
+
+def test_team_first_half_ou_market_codes(sample_factors):
+    """Market codes should distinguish home/away team first half."""
+    recs = model_team_first_half_over_under(0.0, sample_factors, line=0.5)
+    home_codes = {r.market_code for r in recs if "Home" in r.pick}
+    away_codes = {r.market_code for r in recs if "Away" in r.pick}
+    assert all("home-team-first-half" in c for c in home_codes)
+    assert all("away-team-first-half" in c for c in away_codes)
+
+
+def test_team_first_half_ou_home_lambda_gt_away(sample_factors):
+    """With positive overall_score (home advantage), home FH Over should be > away FH Over."""
+    recs = model_team_first_half_over_under(0.8, sample_factors, line=0.5)
+    h_over = next(r.probability for r in recs if r.pick == "Home Team 1st Half Over 0.5")
+    a_over = next(r.probability for r in recs if r.pick == "Away Team 1st Half Over 0.5")
+    assert h_over >= a_over - 0.05, (
+        f"Home FH Over {h_over:.3f} should be >= Away FH Over {a_over:.3f} (home advantage)"
+    )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  Per-Team Second Half O/U
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_team_second_half_ou_returns_four_picks(sample_factors):
+    """model_team_second_half_over_under returns 4 picks."""
+    recs = model_team_second_half_over_under(0.4, sample_factors, line=0.5)
+    assert len(recs) == 4
+
+
+def test_team_second_half_ou_expected_picks(sample_factors):
+    """All four 2nd half per-team pick labels should be present."""
+    recs = model_team_second_half_over_under(0.4, sample_factors, line=0.5)
+    picks = {r.pick for r in recs}
+    assert "Home Team 2nd Half Over 0.5" in picks
+    assert "Home Team 2nd Half Under 0.5" in picks
+    assert "Away Team 2nd Half Over 0.5" in picks
+    assert "Away Team 2nd Half Under 0.5" in picks
+
+
+def test_team_second_half_ou_probs_sum_to_one(sample_factors):
+    """Each team's SH Over + Under must sum to 1.0."""
+    recs = model_team_second_half_over_under(0.0, sample_factors, line=0.5)
+    for team in ["Home", "Away"]:
+        over_p = next(r.probability for r in recs if r.pick == f"{team} Team 2nd Half Over 0.5")
+        under_p = next(r.probability for r in recs if r.pick == f"{team} Team 2nd Half Under 0.5")
+        assert abs(over_p + under_p - 1.0) < 0.001, (
+            f"{team} SH probs don't sum to 1: {over_p} + {under_p}"
+        )
+
+
+def test_team_second_half_ou_market_codes(sample_factors):
+    """Market codes must clearly identify team + half."""
+    recs = model_team_second_half_over_under(0.0, sample_factors, line=1.5)
+    home_codes = {r.market_code for r in recs if "Home" in r.pick}
+    away_codes = {r.market_code for r in recs if "Away" in r.pick}
+    assert all("home-team-second-half" in c for c in home_codes)
+    assert all("away-team-second-half" in c for c in away_codes)
+
+
+def test_team_sh_over_higher_probability_than_fh_over(sample_factors):
+    """At neutral score, team 2nd Half Over 0.5 should be >= team 1st Half Over 0.5."""
+    fh = model_team_first_half_over_under(0.0, sample_factors, line=0.5)
+    sh = model_team_second_half_over_under(0.0, sample_factors, line=0.5)
+    for team in ["Home", "Away"]:
+        fh_over = next(r.probability for r in fh if r.pick == f"{team} Team 1st Half Over 0.5")
+        sh_over = next(r.probability for r in sh if r.pick == f"{team} Team 2nd Half Over 0.5")
+        assert sh_over >= fh_over - 0.05, (
+            f"{team} SH Over {sh_over:.3f} unexpectedly much < FH Over {fh_over:.3f}"
+        )
+
+
+# ═══════════════════════════════════════════════════════════════
+#  evaluate_all_markets integration
+# ═══════════════════════════════════════════════════════════════
+
+
+def test_evaluate_all_markets_includes_half_time_picks(sample_factors):
+    """evaluate_all_markets should include all new half-time picks."""
+    recs = evaluate_all_markets(0.5, sample_factors)
+    picks = {r.pick for r in recs}
+    # Total half-time picks: FH 0.5, FH 1.5, SH 0.5, SH 1.5 (×2 = 8)
+    # Team FH 0.5, FH 1.5, SH 0.5, SH 1.5 (×4 = 16) → total 24
+    expected = [
+        "1st Half Over 0.5", "1st Half Under 0.5",
+        "1st Half Over 1.5", "1st Half Under 1.5",
+        "2nd Half Over 0.5", "2nd Half Under 0.5",
+        "Home Team 1st Half Over 0.5", "Home Team 1st Half Under 0.5",
+        "Away Team 1st Half Over 0.5", "Away Team 1st Half Under 0.5",
+        "Home Team 2nd Half Over 0.5", "Home Team 2nd Half Under 0.5",
+        "Away Team 2nd Half Over 0.5", "Away Team 2nd Half Under 0.5",
+    ]
+    for p in expected:
+        assert p in picks, f"Missing expected pick '{p}' from evaluate_all_markets"

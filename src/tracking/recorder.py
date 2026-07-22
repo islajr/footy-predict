@@ -230,6 +230,24 @@ class ResultRecorder:
         if market.startswith("team-over-under"):
             return self._eval_team_over_under(prediction, pick, hs, as_, match)
 
+        if market.startswith("first-half-over-under"):
+            return self._eval_first_half_ou(market, pick, ht_hs, ht_as)
+
+        if market.startswith("second-half-over-under"):
+            return self._eval_second_half_ou(market, pick, hs, as_, ht_hs, ht_as)
+
+        if market.startswith("home-team-first-half-over-under"):
+            return self._eval_team_half_ou(market, pick, "home", "first", ht_hs, ht_as, hs, as_)
+
+        if market.startswith("home-team-second-half-over-under"):
+            return self._eval_team_half_ou(market, pick, "home", "second", ht_hs, ht_as, hs, as_)
+
+        if market.startswith("away-team-first-half-over-under"):
+            return self._eval_team_half_ou(market, pick, "away", "first", ht_hs, ht_as, hs, as_)
+
+        if market.startswith("away-team-second-half-over-under"):
+            return self._eval_team_half_ou(market, pick, "away", "second", ht_hs, ht_as, hs, as_)
+
         logger.warning("Unknown market '%s' — marking as VOID", market)
         return ("VOID", True)
 
@@ -588,3 +606,126 @@ class ResultRecorder:
         actual_outcome = f"{team_side.capitalize()} {'Over' if actual_over else 'Under'} {line:g} (scored {team_goals})"
         
         return actual_outcome, is_correct
+
+    @staticmethod
+    def _eval_first_half_ou(
+        market: str,
+        pick: str,
+        ht_hs: int | None,
+        ht_as: int | None,
+    ) -> tuple[str, bool]:
+        """Settle 1st Half Total Over/Under.
+
+        Settlement: sum of ht_home_score + ht_away_score vs the line.
+        Returns VOID if half-time scores are unavailable.
+
+        Args:
+            market: Market code e.g. ``"first-half-over-under-0.5"``.
+            pick:   Pick label e.g. ``"1st Half Over 0.5"``.
+            ht_hs:  Home team half-time goals (may be None).
+            ht_as:  Away team half-time goals (may be None).
+        """
+        if ht_hs is None or ht_as is None:
+            return ("VOID — no half-time score data", True)
+
+        # Extract line from market code: "first-half-over-under-0.5" → 0.5
+        m = re.search(r"([\d.]+)$", market)
+        line = float(m.group(1)) if m else 0.5
+
+        ht_total = ht_hs + ht_as
+        is_over = "over" in pick.lower()
+        actual_over = ht_total > line
+        is_correct = (is_over and actual_over) or (not is_over and not actual_over)
+        outcome = f"1st Half {'Over' if actual_over else 'Under'} {line:g} (HT {ht_hs}-{ht_as}, total {ht_total})"
+        return outcome, is_correct
+
+    @staticmethod
+    def _eval_second_half_ou(
+        market: str,
+        pick: str,
+        hs: int,
+        as_: int,
+        ht_hs: int | None,
+        ht_as: int | None,
+    ) -> tuple[str, bool]:
+        """Settle 2nd Half Total Over/Under.
+
+        Settlement: (FT home - HT home) + (FT away - HT away) vs the line.
+        Returns VOID if half-time scores are unavailable.
+
+        Args:
+            market: Market code e.g. ``"second-half-over-under-0.5"``.
+            pick:   Pick label e.g. ``"2nd Half Over 0.5"``.
+            hs:     Home team full-time goals.
+            as_:    Away team full-time goals.
+            ht_hs:  Home team half-time goals (may be None).
+            ht_as:  Away team half-time goals (may be None).
+        """
+        if ht_hs is None or ht_as is None:
+            return ("VOID — no half-time score data", True)
+
+        m = re.search(r"([\d.]+)$", market)
+        line = float(m.group(1)) if m else 0.5
+
+        sh_home = max(0, hs - ht_hs)
+        sh_away = max(0, as_ - ht_as)
+        sh_total = sh_home + sh_away
+        is_over = "over" in pick.lower()
+        actual_over = sh_total > line
+        is_correct = (is_over and actual_over) or (not is_over and not actual_over)
+        outcome = (
+            f"2nd Half {'Over' if actual_over else 'Under'} {line:g} "
+            f"(2H {sh_home}-{sh_away}, total {sh_total})"
+        )
+        return outcome, is_correct
+
+    @staticmethod
+    def _eval_team_half_ou(
+        market: str,
+        pick: str,
+        team_side: str,
+        half: str,
+        ht_hs: int | None,
+        ht_as: int | None,
+        hs: int,
+        as_: int,
+    ) -> tuple[str, bool]:
+        """Settle per-team, per-half Over/Under.
+
+        Handles all four variants:
+        - home/away × first/second half × over/under.
+        Returns VOID if half-time scores are unavailable.
+
+        Args:
+            market:    Market code e.g. ``"home-team-first-half-over-under-0.5"``.
+            pick:      Pick label e.g. ``"Home Team 1st Half Over 0.5"``.
+            team_side: ``"home"`` or ``"away"``.
+            half:      ``"first"`` or ``"second"``.
+            ht_hs:     Home team half-time goals (may be None).
+            ht_as:     Away team half-time goals (may be None).
+            hs:        Home team full-time goals.
+            as_:       Away team full-time goals.
+        """
+        if ht_hs is None or ht_as is None:
+            return ("VOID — no half-time score data", True)
+
+        m = re.search(r"([\d.]+)$", market)
+        line = float(m.group(1)) if m else 0.5
+
+        if half == "first":
+            team_goals = ht_hs if team_side == "home" else ht_as
+            half_label = "1st Half"
+        else:
+            sh_home = max(0, hs - ht_hs)
+            sh_away = max(0, as_ - ht_as)
+            team_goals = sh_home if team_side == "home" else sh_away
+            half_label = "2nd Half"
+
+        is_over = "over" in pick.lower()
+        actual_over = team_goals > line
+        is_correct = (is_over and actual_over) or (not is_over and not actual_over)
+        outcome = (
+            f"{team_side.capitalize()} Team {half_label} "
+            f"{'Over' if actual_over else 'Under'} {line:g} (scored {team_goals})"
+        )
+        return outcome, is_correct
