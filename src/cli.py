@@ -940,9 +940,9 @@ def _store_predictions(db, analyses) -> int:
     help="Minimum model implied odds (default: VALUE_MIN_ODDS from config, currently 1.32).",
 )
 @click.option(
-    "--min-confidence", "-c", default="HIGH",
+    "--min-confidence", "-c", default="MEDIUM",
     type=click.Choice(["HIGH", "MEDIUM", "LOW"], case_sensitive=False),
-    help="Minimum confidence tier to include. Default: HIGH.",
+    help="Minimum confidence tier to include. Default: MEDIUM (the correct value zone when combined with --min-odds).",
 )
 @click.option("--league", "-l", default=None, help="League slug filter.")
 @click.option(
@@ -964,20 +964,25 @@ def report(
 ) -> None:
     """Generate a weekly decision-support pick report.
 
-    Shows the best value-zone pick(s) per upcoming fixture with full rationale,
-    key factors for and against, and alternative picks. Designed to be read
-    alongside your own research — the system surfaces evidence, you decide.
+    Shows the best value-zone pick(s) per upcoming fixture with full rationale
+    and alternative picks. Designed to be read alongside your own research.
 
     \b
-    Value zone = HIGH confidence AND implied odds >= min-odds.
-    Default min-odds: 1.32 (targets approx. 1.20 real SportyBet odds after margin).
+    Value zone = MEDIUM (or HIGH) confidence AND implied odds >= min-odds.
+    Default: MEDIUM confidence + 1.32 model odds (≈ ≥1.20 real SportyBet odds).
+
+    Why MEDIUM as default? HIGH picks (P≥0.80) have model implied odds ≤1.25,
+    which is below the 1.32 value floor. The real value zone lives in MEDIUM
+    (P 0.60-0.76, model odds 1.32-1.67, real odds ≈1.19-1.50). Use
+    --min-confidence HIGH to see all high-confidence picks regardless of odds.
 
     \b
     Examples:
-        footy report                           # next 7 days, HIGH, odds>=1.32
+        footy report                           # MEDIUM picks, odds>=1.32, next 7 days
         footy report --days 3                  # this weekend only
         footy report --min-odds 1.40           # stricter odds floor
-        footy report --min-confidence MEDIUM   # include MEDIUM picks too
+        footy report --min-confidence HIGH     # all HIGH picks (any odds)
+        footy report -c HIGH --min-odds 0      # HIGH picks, no odds filter
         footy report --output weekend.txt      # save to file
     """
     from src.config import VALUE_MIN_ODDS
