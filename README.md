@@ -13,12 +13,12 @@ Runs entirely on your laptop with SQLite. No hosting required.
 | Capability | Detail |
 |---|---|
 | **16-Factor Analysis Engine** | Form, xG quality, head-to-head, rest days, rivalry, venue bias, opponent strength, attacking matchup, scoring patterns, goal timing, and more |
-| **11 Betting Markets** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5 goals), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U (0.5/1.5/2.5), **1X2-1UP** (bet wins when team ever leads by 1+), **1X2-2UP** (bet wins on outright win or going 2 ahead at any point) |
-| **Value Zone Filtering** | `footy report --min-odds 1.32` — filters picks to HIGH confidence + ≥1.20 real odds (adjusted for bookmaker margin) |
+| **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~61 picks per fixture |
+| **Value Zone Filtering** | `footy report` defaults to **MEDIUM** confidence + ≥1.32 model odds — the correct value zone for 64,000-odds accumulator construction |
 | **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, rationale, risk flags, and 4 alternatives. Designed to be read, not blindly followed |
 | **Quota-Aware Fetching** | `footy fetch-upcoming` stays within the 100 req/day free API tier |
 | **Accuracy Tracking** | `footy record` + `footy accuracy` + `footy calibrate` — a self-improving loop across the season |
-| **134 Tests** | Pytest suite covering factors, markets, settlement logic, calibration |
+| **155 Tests** | Pytest suite covering factors, markets, settlement logic, calibration |
 
 ---
 
@@ -47,6 +47,24 @@ These are early-exit insurance picks — the most valuable markets in the system
 - **Away 1UP / Away 2UP**: Same logic for the away team.
 
 These pay slightly lower odds than the outright result but provide significantly better insurance. Historical hit rates: **1UP: ~85%, 2UP: ~87%**.
+
+### Understanding the New Half-Time Markets
+
+Added July 2026 — these derive from the `goal_timing` factor's per-team H1/H2 goal percentages applied to the Poisson lambda. All use historical HTHG/HTAG data already in the database.
+
+| Market | Description | Typical Model Odds |
+|---|---|---|
+| **1st Half Over 0.5** | At least 1 goal before half-time | 1.25–1.60 |
+| **1st Half Under 0.5** | No goals in first 45 mins | 1.60–2.50 |
+| **1st Half Over 1.5** | 2+ goals before half-time | 1.70–3.00 |
+| **2nd Half Over 0.5** | At least 1 goal after half-time | 1.20–1.45 |
+| **2nd Half Over 1.5** | 2+ goals in second half | 1.60–2.50 |
+| **Home Team 1st Half Over 0.5** | Home team scores in H1 | 1.45–2.00 |
+| **Away Team 1st Half Over 0.5** | Away team scores in H1 | 1.60–2.40 |
+| **Home Team 2nd Half Over 0.5** | Home team scores in H2 | 1.35–1.80 |
+| **Away Team 2nd Half Over 0.5** | Away team scores in H2 | 1.40–1.90 |
+
+> **Settlement note:** These all void if HTHG/HTAG data is unavailable for a match. The CSV data from football-data.co.uk stores half-time scores for all leagues going back to 2018, so in practice virtually all historical results will settle correctly.
 
 ### Markets to Use at HIGH Confidence
 
@@ -125,7 +143,7 @@ footy load-history [--league SLUG] [--seasons N]   # bulk-load historical CSVs
 footy analyze matchweek [--league SLUG]    # full analysis, all upcoming fixtures
 footy analyze match "Team A vs Team B"     # single-match deep dive
 footy picks [-c HIGH] [-m MARKET] [-o 1.32]        # all picks, filterable
-footy report [-o 1.32] [-c HIGH] [--days N] [--output FILE]   # weekly report ⭐
+footy report [-o 1.32] [-c MEDIUM] [--days N] [--output FILE]  # weekly report ⭐
 footy parlay --size 50 [-c HIGH] [-o 1.32]         # parlay builder
 footy record [--league SLUG]               # record finished match results
 footy accuracy [--market M] [--league L]   # accuracy dashboard
@@ -147,10 +165,11 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 
 ### Active (Season 2026/27)
 - ✅ 16-factor analysis engine
-- ✅ 11 markets including 1UP/2UP
+- ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~61 picks/fixture)
 - ✅ Probability calibration (shrinkage, Dixon-Coles, DNB fix)
-- ✅ `footy report` weekly decision-support command
+- ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop
+- ✅ 155 tests passing
 - 🔄 xG quality factor activates from August 2026
 
 ### Phase E (After Season Start)
@@ -187,4 +206,4 @@ python brain/scratch/simulate_historical.py
 
 ---
 
-*Local-first · Decision-support · No hosting required · Python 3.11+*
+*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 155 tests*
