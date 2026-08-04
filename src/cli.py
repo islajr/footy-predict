@@ -357,8 +357,8 @@ def load_history(ctx: click.Context, league: str | None, seasons: int) -> None:
         console.print(f"[green]✓ Loaded {count} matches for {lg.name}[/green]")
     else:
         with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
-            task = progress.add_task("Loading all historical data...", total=None)
-            results = loader.load_all_leagues_history()
+            task = progress.add_task(f"Loading last {seasons} season(s) for all leagues...", total=None)
+            results = loader.load_all_leagues_history(seasons=seasons)
             progress.update(task, completed=True)
 
         total = sum(results.values())

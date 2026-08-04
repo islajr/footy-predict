@@ -38,3 +38,6 @@ Thumbs.db
 # CLI Guide PDF
 cli_guide.pdf
 
+
+# local db backups
+footy.db.backup-*

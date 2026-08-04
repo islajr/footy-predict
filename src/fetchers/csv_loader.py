@@ -409,13 +409,20 @@ class CSVLoader:
         self,
         start_season: int = 2018,
         end_season: int | None = None,
+        seasons: int | None = None,
     ) -> dict[str, int]:
         """
         Load history for every league that has CSV data.
 
         Args:
-            start_season: First season start year to load.
+            start_season: First season start year to load. Ignored when
+                ``seasons`` is given.
             end_season: Last season start year to load.
+            seasons: Number of most-recent seasons to load. Resolved per
+                league against that league's own current season, since
+                calendar-year leagues (e.g. Eliteserien) are offset from
+                European Aug–May leagues. Takes precedence over
+                ``start_season``.
 
         Returns:
             Dict mapping league slug → total matches loaded.
@@ -427,11 +434,16 @@ class CSVLoader:
                 logger.info("Skipping %s — no CSV data available", slug)
                 continue
 
+            league_end = end_season if end_season is not None else league.get_current_season()
+            league_start = (
+                league_end - seasons + 1 if seasons is not None else start_season
+            )
+
             try:
                 count = self.load_all_history(
                     slug,
-                    start_season=start_season,
-                    end_season=end_season,
+                    start_season=league_start,
+                    end_season=league_end,
                 )
                 results[slug] = count
             except Exception as exc:

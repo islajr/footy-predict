@@ -601,12 +601,16 @@ class Database:
         league_id: int | None = None,
         from_date: str | None = None,
         to_date: str | None = None,
-        limit: int = 200,
+        limit: int = 1000,
     ) -> list[dict[str, Any]]:
         """
         Get upcoming (SCHEDULED/TIMED) matches, optionally filtered.
 
         If no date range given, defaults to next 14 days.
+
+        The limit is a runaway guard, not a page size — a busy 14-day window
+        across all 12 leagues is ~250 fixtures, so it must sit well clear of
+        realistic volumes or matchweek analysis silently loses fixtures.
         """
         if from_date is None:
             from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
