@@ -72,7 +72,15 @@ def _run_python_migration(conn: sqlite3.Connection, path: Path) -> None:
         raise RuntimeError(f"Could not load migration module: {path.name}")
 
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Register before executing: @dataclass and anything else that resolves
+    # type hints looks the defining module up in sys.modules, and fails
+    # obscurely when it is absent.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(spec.name, None)
+        raise
 
     if not hasattr(module, "migrate"):
         raise RuntimeError(f"{path.name} defines no migrate(conn) function")
