@@ -4,7 +4,7 @@
 Supports plain ``.sql`` files and ``.py`` data migrations. A Python migration
 must expose ``migrate(conn)`` and is used where the transformation needs
 application logic — e.g. 005 resolves team identity via the canonicalisation
-rules in ``src.fetchers.team_names``, which cannot be expressed in SQL.
+rules in ``src.team_names``, which cannot be expressed in SQL.
 
 Usage:
     python -m migrations.run 003            # Run migration 003
