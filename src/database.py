@@ -93,6 +93,14 @@ CREATE INDEX IF NOT EXISTS idx_matches_date ON matches(date);
 CREATE INDEX IF NOT EXISTS idx_matches_league ON matches(league_id, season);
 CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches(home_team_id, away_team_id);
 
+-- Fixture identity. Keyed on the calendar date rather than the full timestamp:
+-- CSV rows carry midnight where football-data.org carries the true kickoff, and
+-- those are the same fixture. The date must be in the key all the same, since
+-- split-format leagues (Scottish Premiership, Belgian Pro League) legitimately
+-- repeat a home/away pairing within one season.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_identity
+    ON matches(league_id, season, home_team_id, away_team_id, date(date));
+
 -- Per-team match statistics
 CREATE TABLE IF NOT EXISTS match_stats (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -637,7 +645,16 @@ class Database:
         venue: str | None = None,
         source: str = "api_football",
     ) -> int:
-        """Insert or update a match. Returns the match ID."""
+        """Insert or update a match. Returns the match ID.
+
+        Identity is (league, season, both teams, calendar date). The previous
+        ON CONFLICT(api_football_id) clause never fired for CSV or
+        football-data.org rows — that column is nullable and SQLite treats
+        every NULL as distinct — so each re-fetch inserted a duplicate.
+
+        A late score or status only ever overwrites a NULL: a FINISHED result
+        already on the row is never reverted by a later SCHEDULED fetch.
+        """
         with self._connect() as conn:
             conn.execute(
                 """
@@ -646,8 +663,22 @@ class Database:
                     home_team_id, away_team_id, home_score, away_score,
                     ht_home_score, ht_away_score, referee, venue, source, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                ON CONFLICT(api_football_id) DO UPDATE SET
-                    status=excluded.status,
+                ON CONFLICT(league_id, season, home_team_id, away_team_id, date(date))
+                DO UPDATE SET
+                    api_football_id=COALESCE(matches.api_football_id, excluded.api_football_id),
+                    -- A stale SCHEDULED row from a re-fetch must not un-finish
+                    -- a match whose result is already recorded.
+                    status=CASE
+                        WHEN matches.status = 'FINISHED' AND excluded.status != 'FINISHED'
+                            THEN matches.status
+                        ELSE excluded.status
+                    END,
+                    -- Prefer the more precise timestamp: the CSV loader stores
+                    -- midnight, so it must not clobber a real kickoff time.
+                    date=CASE
+                        WHEN excluded.date LIKE '%T00:00:00%' THEN matches.date
+                        ELSE excluded.date
+                    END,
                     home_score=COALESCE(excluded.home_score, matches.home_score),
                     away_score=COALESCE(excluded.away_score, matches.away_score),
                     ht_home_score=COALESCE(excluded.ht_home_score, matches.ht_home_score),
@@ -661,17 +692,12 @@ class Database:
                  home_team_id, away_team_id, home_score, away_score,
                  ht_home_score, ht_away_score, referee, venue, source),
             )
-            if api_football_id:
-                row = conn.execute(
-                    "SELECT id FROM matches WHERE api_football_id = ?",
-                    (api_football_id,),
-                ).fetchone()
-            else:
-                row = conn.execute(
-                    """SELECT id FROM matches
-                       WHERE league_id=? AND date=? AND home_team_id=? AND away_team_id=?""",
-                    (league_id, date, home_team_id, away_team_id),
-                ).fetchone()
+            row = conn.execute(
+                """SELECT id FROM matches
+                   WHERE league_id=? AND season=? AND home_team_id=?
+                     AND away_team_id=? AND date(date)=date(?)""",
+                (league_id, season, home_team_id, away_team_id, date),
+            ).fetchone()
             return row["id"]
 
     def get_upcoming_matches(
