@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Generator
 
 from src.config import DB_PATH
+from src.team_names import canonical_key
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -57,8 +58,14 @@ CREATE TABLE IF NOT EXISTS teams (
     short_name      TEXT,
     aliases         TEXT    DEFAULT '[]',  -- JSON array of alternative names
     logo_url        TEXT,
+    -- Source-independent identity: "Man United" and "Manchester United FC"
+    -- share a key, so a club cannot split across rows. See team_names.py.
+    canonical_key   TEXT,
     UNIQUE(name, league_id)
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_canonical
+    ON teams(league_id, canonical_key);
 
 -- Match fixtures (historical + upcoming)
 CREATE TABLE IF NOT EXISTS matches (
@@ -440,45 +447,116 @@ class Database:
         aliases: list[str] | None = None,
         logo_url: str | None = None,
     ) -> int:
-        """Insert or update a team. Returns the team ID."""
-        aliases_json = json.dumps(aliases or [])
+        """Insert or update a team. Returns the team ID.
+
+        Identity resolves on the canonical key, not the raw name, so the same
+        club arriving as "Man United" (CSV) and "Manchester United FC" (FDO)
+        lands on one row instead of two. The longer spelling wins the display
+        name and the shorter one is kept as an alias.
+        """
+        key = canonical_key(name)
+
         with self._connect() as conn:
-            # Try matching by API-Football ID first, then by name+league
+            # Source id is the strongest signal when present.
             if api_football_id:
                 existing = conn.execute(
                     "SELECT id FROM teams WHERE api_football_id = ?",
                     (api_football_id,),
                 ).fetchone()
                 if existing:
-                    conn.execute(
-                        """UPDATE teams SET name=?, league_id=?, fdo_id=?,
-                           short_name=?, aliases=?, logo_url=?
-                           WHERE api_football_id=?""",
-                        (name, league_id, fdo_id, short_name, aliases_json,
-                         logo_url, api_football_id),
+                    self._merge_team_row(
+                        conn, existing["id"], name, key, league_id,
+                        fdo_id, short_name, aliases, logo_url,
                     )
                     return existing["id"]
 
-            conn.execute(
+            existing = conn.execute(
+                "SELECT id FROM teams WHERE league_id = ? AND canonical_key = ?",
+                (league_id, key),
+            ).fetchone()
+            if existing:
+                self._merge_team_row(
+                    conn, existing["id"], name, key, league_id,
+                    fdo_id, short_name, aliases, logo_url,
+                    api_football_id=api_football_id,
+                )
+                return existing["id"]
+
+            cur = conn.execute(
                 """
                 INSERT INTO teams (name, api_football_id, fdo_id, league_id,
-                                   short_name, aliases, logo_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                   short_name, aliases, logo_url, canonical_key)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(name, league_id) DO UPDATE SET
                     api_football_id=COALESCE(excluded.api_football_id, teams.api_football_id),
                     fdo_id=COALESCE(excluded.fdo_id, teams.fdo_id),
                     short_name=COALESCE(excluded.short_name, teams.short_name),
                     aliases=excluded.aliases,
-                    logo_url=COALESCE(excluded.logo_url, teams.logo_url)
+                    logo_url=COALESCE(excluded.logo_url, teams.logo_url),
+                    canonical_key=excluded.canonical_key
                 """,
                 (name, api_football_id, fdo_id, league_id,
-                 short_name, aliases_json, logo_url),
+                 short_name, json.dumps(aliases or []), logo_url, key),
             )
+            if cur.lastrowid:
+                return cur.lastrowid
+
             row = conn.execute(
                 "SELECT id FROM teams WHERE name = ? AND league_id = ?",
                 (name, league_id),
             ).fetchone()
             return row["id"]
+
+    def _merge_team_row(
+        self,
+        conn: sqlite3.Connection,
+        team_id: int,
+        name: str,
+        key: str,
+        league_id: int,
+        fdo_id: int | None,
+        short_name: str | None,
+        aliases: list[str] | None,
+        logo_url: str | None,
+        api_football_id: int | None = None,
+    ) -> None:
+        """Fold an incoming spelling into an existing team row.
+
+        The most complete spelling becomes the display name; every other
+        observed spelling is retained as an alias so lookups by any source's
+        name still resolve.
+        """
+        row = conn.execute(
+            "SELECT name, aliases FROM teams WHERE id = ?", (team_id,)
+        ).fetchone()
+
+        try:
+            known = set(json.loads(row["aliases"] or "[]"))
+        except (json.JSONDecodeError, TypeError):
+            known = set()
+        known.update(aliases or [])
+        known.add(row["name"])
+        known.add(name)
+
+        display = max((row["name"], name), key=len)
+        known.discard(display)
+
+        conn.execute(
+            """
+            UPDATE teams SET
+                name            = ?,
+                canonical_key   = ?,
+                league_id       = COALESCE(?, league_id),
+                api_football_id = COALESCE(api_football_id, ?),
+                fdo_id          = COALESCE(?, fdo_id),
+                short_name      = COALESCE(?, short_name),
+                logo_url        = COALESCE(?, logo_url),
+                aliases         = ?
+            WHERE id = ?
+            """,
+            (display, key, league_id, api_football_id, fdo_id, short_name,
+             logo_url, json.dumps(sorted(known)), team_id),
+        )
 
     def get_team(self, team_id: int) -> dict[str, Any] | None:
         """Get a team by internal ID."""

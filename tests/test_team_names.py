@@ -8,7 +8,7 @@ history in half and starving every form/venue/h2h factor of data.
 
 import pytest
 
-from src.fetchers.team_names import ALIASES, canonical_key, normalize_team_name
+from src.team_names import ALIASES, canonical_key, normalize_team_name
 
 
 class TestNormalize:

@@ -53,6 +53,43 @@ def test_team_operations(temp_db):
     assert team_by_name is not None
     assert team_by_name["id"] == t_id
 
+
+def test_team_identity_survives_source_spellings(temp_db):
+    """One club, many spellings, one row.
+
+    Regression cover for the split that gave the Premier League 53 team rows
+    for a 20-team competition — half a club's history under each spelling.
+    """
+    db = temp_db
+    l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
+
+    csv_id = db.upsert_team("Man United", l_id)
+    fdo_id = db.upsert_team("Manchester United FC", l_id, fdo_id=66)
+    api_id = db.upsert_team("Manchester United", l_id, api_football_id=33)
+
+    assert csv_id == fdo_id == api_id, "club split across rows"
+
+    team = db.get_team(csv_id)
+    # The fullest spelling wins the display name; the rest survive as aliases.
+    assert team["name"] == "Manchester United FC"
+    assert "Man United" in team["aliases"]
+    # Source ids collected along the way are retained, not overwritten.
+    assert team["fdo_id"] == 66
+    assert team["api_football_id"] == 33
+
+
+def test_distinct_clubs_stay_distinct(temp_db):
+    """Canonicalisation must not over-merge genuinely different clubs."""
+    db = temp_db
+    l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
+
+    ids = {
+        db.upsert_team(name, l_id)
+        for name in ("Manchester United", "Manchester City",
+                     "Sheffield United", "Sheffield Wednesday")
+    }
+    assert len(ids) == 4
+
 def test_match_operations(temp_db):
     db = temp_db
     l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
