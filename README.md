@@ -13,26 +13,30 @@ Runs entirely on your laptop with SQLite. No hosting required.
 | Capability | Detail |
 |---|---|
 | **16-Factor Analysis Engine** | Form, xG quality, head-to-head, rest days, rivalry, venue bias, opponent strength, attacking matchup, scoring patterns, goal timing, and more |
-| **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~61 picks per fixture |
+| **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~65 picks per fixture |
 | **Value Zone Filtering** | `footy report` defaults to **MEDIUM** confidence + ≥1.32 model odds — the correct value zone for 64,000-odds accumulator construction |
 | **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, rationale, risk flags, and 4 alternatives. Designed to be read, not blindly followed |
 | **Quota-Aware Fetching** | `footy fetch-upcoming` stays within the 100 req/day free API tier |
 | **Accuracy Tracking** | `footy record` + `footy accuracy` + `footy calibrate` — a self-improving loop across the season |
-| **155 Tests** | Pytest suite covering factors, markets, settlement logic, calibration |
+| **194 Tests** | Pytest suite covering factors, markets, settlement logic, calibration |
 
 ---
 
-## 📊 Current Accuracy (July 2026, 8,307 settled predictions)
+## 📊 Current Accuracy (August 2026, 12,982 settled predictions)
 
 | Tier | Hit Rate | Count | When to Use |
 |---|---|---|---|
-| **HIGH** (≥80% prob) | **79.9%** | 1,973 picks | Primary parlay picks |
-| **MEDIUM** (60-80%) | **62.7%** | 1,466 picks | Secondary / fill legs |
-| LOW (<60%) | 34.6% | 4,868 picks | Informational only |
+| **HIGH** (≥80% prob) | **80.3%** | 2,427 picks | Primary parlay picks |
+| **MEDIUM** (60-80%) | **67.0%** | 2,284 picks | Secondary / fill legs |
+| LOW (<60%) | 35.5% | 8,271 picks | Informational only |
 
-**Brier score: 0.2064** (vs 0.25 for random — significantly better calibration)
+**Brier score: 0.2037** (vs 0.25 for random — significantly better calibration)
 
-> Accuracy measured via retroactive simulation on 200 finished matches (2025/26 season). Historical CSVs + API-Football data. xG factor not yet active (starts August 2026).
+> Accuracy measured via retroactive simulation on 200 finished matches (2025/26 season). Historical CSVs + API-Football data.
+>
+> **Read tiers, not per-market rates.** The engine stores *both* sides of every binary market with complementary probabilities, so per-market hit rates mechanically converge on 50% and "overall accuracy" (~49.4%) is meaningless. Only confidence tiers and Brier score measure quality.
+>
+> The `xg_quality` factor is at 0% coverage and **blocked, not merely pending** — historical rows sourced from football-data.org carry no `api_football_id`, which `footy fetch --stats` requires. See `cli_guide.md` §10.
 
 ---
 
@@ -46,7 +50,10 @@ These are early-exit insurance picks — the most valuable markets in the system
 - **Home 2UP**: Bet wins on outright home win, OR the moment the home team leads by 2 goals at any point. If they go 2-0 up and then the score ends 2-2, the bet still wins.
 - **Away 1UP / Away 2UP**: Same logic for the away team.
 
-These pay slightly lower odds than the outright result but provide significantly better insurance. Historical hit rates: **1UP: ~85%, 2UP: ~87%**.
+These pay slightly lower odds than the outright result but provide significantly better insurance.
+
+> [!NOTE]
+> **Measured rates, and why they're a floor.** In the Aug 2026 simulation, 1UP hit **88.5%** at HIGH (n=26) and 53.4% at MEDIUM (n=204); 2UP hit 66.3% at MEDIUM (n=101) with only one HIGH pick. Settlement is a *conservative approximation* — without minute-level goal events, a lead is only detected via an outright win or a half-time lead. A team that led 1-0 in the 60th minute and drew 1-1 is scored as a miss. True rates are therefore higher than these figures, but by an unmeasured margin until `/fixtures/events` data lands (Phase E).
 
 ### Understanding the New Half-Time Markets
 
@@ -70,7 +77,7 @@ Added July 2026 — these derive from the `goal_timing` factor's per-team H1/H2 
 
 | Market | HIGH Hit Rate | Model Odds Range | Notes |
 |---|---|---|---|
-| `1x2-1up` (1UP picks) | ~85% | 1.17–1.30 | Best risk/reward balance |
+| `1x2` — picks `…1X2 - 1UP` | 88.5% (n=26) | 1.17–1.30 | Best risk/reward balance. Rate is a floor — see settlement note above |
 | `double-chance` | 80.0% | 1.13–1.30 | Short odds — borderline value zone |
 | `over-under-1.5` | 83.2% | 1.14–1.40 | Reliable at HIGH |
 | `away-under-2.5` | 85.9% | 1.08–1.25 | Very reliable |
@@ -165,12 +172,13 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 
 ### Active (Season 2026/27)
 - ✅ 16-factor analysis engine
-- ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~61 picks/fixture)
+- ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~65 picks/fixture)
 - ✅ Probability calibration (shrinkage, Dixon-Coles, DNB fix)
 - ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop
+- ✅ Data integrity: team canonicalisation (325 clubs), 11,609 duplicate rows removed, fixture-identity unique index
 - ✅ 194 tests passing
-- 🔄 xG quality factor activates from August 2026
+- ⚠️ xG quality factor blocked at 0% — FDO-sourced rows lack `api_football_id`; resolves as 2026/27 fixtures arrive
 
 ### Phase E (After Season Start)
 - 📋 Bookmaker odds integration (true edge detection)
@@ -192,17 +200,19 @@ pytest
 pytest --cov=src
 
 # Run simulation (200 historical matches)
-python brain/scratch/simulate_historical.py
+# Note: simulate_historical.py lives outside the repo, in the agent workspace:
+#   ~/.gemini/antigravity-cli/brain/<session-uuid>/scratch/simulate_historical.py
+python /path/to/simulate_historical.py
 ```
 
 ---
 
 ## 📄 Documentation
 
-- **[CLI Guide](brain/cli_guide.md)** — comprehensive local workflow guide, all commands, scenarios, how to win consistently
-- **[Walkthrough](brain/walkthrough.md)** — development history and what was built
-- **[Analytics Roadmap](brain/analytics_roadmap.md)** — full capability roadmap with status
-- **[Simulation Report](brain/simulation_report_phase_a.md)** — accuracy measurements and calibration history
+- **[CLI Guide](cli_guide.md)** — comprehensive workflow guide: all commands, use scenarios, data-integrity notes, troubleshooting, parlay construction
+- **[Architecture](architecture.md)** — system design and module layout
+- **[Codebase Map](CODEBASE.md)** — file-by-file reference
+- **[Simulation Report](simulation_report_phase_a.md)** — accuracy measurements, calibration history, factor coverage
 
 ---
 
