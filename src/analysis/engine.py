@@ -1,7 +1,7 @@
 """
 Footy Predict — Analysis Engine
 
-The orchestrator that runs all 12 factors, aggregates their scores, and
+The orchestrator that runs all 16 factors, aggregates their scores, and
 feeds them into market-specific models to produce comprehensive match
 analyses.
 
@@ -41,7 +41,7 @@ class MatchAnalysis:
         away_team: Away team display name.
         league: League display name.
         match_date: ISO 8601 date string.
-        factor_results: All 12 factor evaluations.
+        factor_results: All 16 factor evaluations.
         overall_home_score: Weighted aggregate (-1 to +1).
         overall_confidence: Weighted average confidence (0 to 1).
         market_recommendations: Sorted list of market picks.
@@ -92,7 +92,7 @@ class AnalysisEngine:
         """Run the full analysis pipeline for a single fixture.
 
         1. Load match + team data from DB.
-        2. Run all 12 factors.
+        2. Run all 16 factors.
         3. Compute weighted aggregate score.
         4. Evaluate all market models.
         5. Assess data quality and generate summary.
@@ -406,7 +406,8 @@ class AnalysisEngine:
         low_conf_count = sum(1 for f in factor_results if f.confidence < 0.3)
         if low_conf_count >= 6:
             flags.append(
-                f"⚠️ Sparse data: {low_conf_count}/12 factors have low confidence"
+                f"⚠️ Sparse data: {low_conf_count}/{len(factor_results)} "
+                "factors have low confidence"
             )
 
         # Conflicting signals

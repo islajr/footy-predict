@@ -340,7 +340,7 @@ The central orchestrator that coordinates the match analysis process.
 *   **Methods**:
     *   `analyze_match(self, match_id: int) -> MatchAnalysis`: Coordinates the analysis process for a match:
         1.  Loads match details and participating team profiles.
-        2.  Evaluates the 12 factors, returning neutral scores if any throw an exception.
+        2.  Evaluates the 16 factors, returning neutral scores if any throw an exception.
         3.  Computes the overall score and confidence rating using a weighted average.
         4.  Gathers team season statistics.
         5.  Calls the market prediction models in `markets.py`.
@@ -440,7 +440,7 @@ The web server layer handles routing, business logic, template rendering, and JS
 | **GET** | `/` | Renders the onboarding screen or redirects to the dashboard. |
 | **GET** | `/dashboard` | Displays the main overview page, including active match counts, quota status, and upcoming fixtures. |
 | **GET** | `/analysis` | Lists upcoming fixtures with filter controls for leagues and date ranges. |
-| **GET** | `/analysis/match/{id}` | Displays a deep-dive view of a match, including charts for the 12 factors and market recommendations. |
+| **GET** | `/analysis/match/{id}` | Displays a deep-dive view of a match, including charts for the 16 factors and market recommendations. |
 | **GET** | `/picks` | Lists recommendations that meet the minimum confidence threshold. |
 | **GET** | `/parlay` | Opens the interactive parlay builder tool. |
 | **POST** | `/api/v1/parlay` | Saves a parlay draft to the database. |
