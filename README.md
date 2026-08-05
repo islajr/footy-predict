@@ -169,7 +169,7 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 - ✅ Probability calibration (shrinkage, Dixon-Coles, DNB fix)
 - ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop
-- ✅ 155 tests passing
+- ✅ 194 tests passing
 - 🔄 xG quality factor activates from August 2026
 
 ### Phase E (After Season Start)
@@ -206,4 +206,4 @@ python brain/scratch/simulate_historical.py
 
 ---
 
-*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 155 tests*
+*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 194 tests*
