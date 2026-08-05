@@ -1,32 +1,48 @@
 # Simulation Report — Full History
 
 > All runs: 200 FINISHED matches · 2025/26 season (2025-08-01 onwards)
-> 8,363 picks generated · 8,307 settled · 56 void (DNB draws only)
+> Latest run (Aug 5): 13,072 picks generated · 12,982 settled · 90 void (DNB draws only)
 
 ---
 
 ## Progression Table
 
-| Metric | Phase A (Jul 9) | Phase C + 1UP fix (Jul 19 AM) | Cal Round 1 (Jul 19 PM) | **Cal Round 2 (Jul 19 EVE)** |
-|---|---|---|---|---|
-| Overall accuracy | 50.5% | 50.3% | 50.3% | 50.3% |
-| **Brier score** | 0.2185 | 0.2138 | 0.2144 | **0.2064** |
-| Picks/match | 34.6 | 41.8 | 41.8 | 41.8 |
-| **HIGH accuracy** | 76.3% | 77.2% | 78.4% | **79.9%** |
-| HIGH count | 1,868 | 2,445 | 2,041 | 1,973 |
-| **MEDIUM accuracy** | 61.5% | 58.0% | 60.4% | **62.7%** |
-| MEDIUM count | 933 | 1,183 | 1,485 | 1,466 |
-| LOW count | 4,064 | 4,679 | 4,781 | 4,868 |
-| 1x2 market | 33.3% | 40.6% | 40.6% | 40.6% |
-| DNB (overall) | — | 53.5% HIGH | MEDIUM 76.2% (re-tiered) | MEDIUM 76.2% ✓ |
-| WEH (overall) | — | 60.5% | 60.5% | 60.5%* |
+| Metric | Phase A (Jul 9) | Phase C + 1UP fix (Jul 19 AM) | Cal Round 1 (Jul 19 PM) | Cal Round 2 (Jul 19 EVE) | **Re-baseline (Aug 5)** |
+|---|---|---|---|---|---|
+| Overall accuracy † | 50.5% | 50.3% | 50.3% | 50.3% | 49.4% |
+| **Brier score** | 0.2185 | 0.2138 | 0.2144 | 0.2064 | **0.2037** |
+| Picks/match | 34.6 | 41.8 | 41.8 | 41.8 | 65.4 |
+| **HIGH accuracy** | 76.3% | 77.2% | 78.4% | 79.9% | **80.3%** |
+| HIGH count | 1,868 | 2,445 | 2,041 | 1,973 | 2,427 |
+| **MEDIUM accuracy** | 61.5% | 58.0% | 60.4% | 62.7% | **67.0%** |
+| MEDIUM count | 933 | 1,183 | 1,485 | 1,466 | 2,284 |
+| LOW count | 4,064 | 4,679 | 4,781 | 4,868 | 8,271 |
+| 1x2 market | 33.3% | 40.6% | 40.6% | 40.6% | 38.6% |
+| DNB (overall) | — | 53.5% HIGH | MEDIUM 76.2% (re-tiered) | MEDIUM 76.2% ✓ | 50.0% † |
+| WEH (overall) | — | 60.5% | 60.5% | 60.5%* | 52.2% |
+
+> [!IMPORTANT]
+> **† Overall and per-market accuracy are artifacts — do not read them as quality.**
+> The engine emits *both* sides of every binary market with complementary
+> probabilities (e.g. `over-under-2.5` stores "Over 2.5" at p=0.664 *and*
+> "Under 2.5" at p=0.336). Exactly one side of each pair always wins at
+> settlement, so per-market hit rates mechanically converge on 50.0% and the
+> overall figure sits near 49–50% regardless of how good the model is.
+>
+> **Only the confidence tiers and the Brier score are valid measures.** The tiers
+> filter to the side the model actually favours; Brier scores probability
+> calibration rather than pick selection.
 
 > [!NOTE]
-> Overall accuracy stays at 50.3% across all post-Phase-A runs because the match
-> outcomes don't change — only *which tier* picks fall into changes. The improvement
-> is in tier quality: fewer but more accurate HIGH picks, better-calibrated MEDIUM.
-> The Brier score is the purer calibration metric — 0.2064 vs 0.25 (random) shows
-> genuine, measurable probability accuracy across all pick tiers.
+> The Aug 5 re-baseline follows the data-integrity work: team canonicalisation
+> (282→245 clubs, later 325 across all leagues), removal of 11,609 duplicate
+> fixture rows, a fixture-identity unique index, and Eliteserien history via
+> API-Football (242→726 matches). Picks/match rose 41.8→65.4 because
+> deduplication and canonicalisation restored the history depth that several
+> markets need before they will emit.
+>
+> MEDIUM gained the most (62.7%→67.0%, +4.3pp), which matters because
+> `footy report` defaults to the MEDIUM tier.
 
 > [!NOTE]
 > \* WEH overall accuracy (60.5%) did not improve in Round 2 because the simulation
@@ -176,7 +192,7 @@ SportyBet's offered odds, you can't verify edge. Bookmaker odds integration
 | O/U 2.5 near-threshold | ✅ Dixon-Coles + lambda shrinkage | Gap partially closed |
 | WEH HIGH (61.1%) | Downtiered to MEDIUM by cap change | ✅ MEDIUM WEH is usable (65%) |
 | Platt scaling (global) | 📋 Not yet implemented | Would tighten all remaining gaps |
-| xG quality | 📋 0% data — activates Aug 2026 | Will improve 1X2 and WtN accuracy |
+| xG quality | ⚠️ 0% data — blocked, not merely pending | FDO-sourced rows lack `api_football_id`; see Factor Data Coverage |
 
 All simulation improvements will be verified in real-season tracking (August 2026 onwards).
 Until then, treat Round 2 gains as directionally correct but not yet confirmed at scale.
@@ -190,10 +206,49 @@ Until then, treat Round 2 gains as directionally correct but not yet confirmed a
 | Phase A baseline | Jul 9 | 76.3% | 61.5% | 0.2185 | 15 factors |
 | Phase C + 1UP fix | Jul 19 AM | 77.2% | 58.0% | 0.2138 | 1UP/2UP correct settlement |
 | Cal Round 1 | Jul 19 PM | 78.4% | 60.4% | 0.2144 | 1X2 shrinkage + DNB fix + Dixon-Coles |
-| **Cal Round 2** | **Jul 19 EVE** | **79.9%** | **62.7%** | **0.2064** | **Poisson λ shrinkage + WEH + WtN CS** |
+| Cal Round 2 | Jul 19 EVE | 79.9% | 62.7% | 0.2064 | Poisson λ shrinkage + WEH + WtN CS |
+| **Re-baseline** | **Aug 5** | **80.3%** | **67.0%** | **0.2037** | **Dedup + canonicalisation + Eliteserien history** |
 
 ---
 
-*Report generated: 2026-07-19 · 200 matches · 8,307 settled picks · 134 tests passing*
-*Current state: HIGH 79.9% · MEDIUM 62.7% · Brier 0.2064 · VALUE_MIN_ODDS 1.32*
-*Next milestone: xG factor (August, season start) · real-season calibration tracking*
+## Factor Data Coverage (Aug 5 run, 200 matches)
+
+Thirteen of sixteen factors have full coverage. The three below are the only
+ones running short of data, and they are the actionable gaps:
+
+| Factor | Coverage | Why |
+|---|---|---|
+| `xg_quality` | **0%** (0/200) | Inert. Requires `match_stats.expected_goals`, which only API-Football supplies. See note below. |
+| `league_position` | 64% (128/200) | Standings absent for some league-seasons in the sample window. |
+| `opponent_strength` | 67.5% (135/200) | Derived from standings, so it inherits the same gap. |
+
+### Why xG is still at zero
+
+`footy fetch --stats` backfills `match_stats` only for matches that carry an
+`api_football_id`. The seven leagues that `footy fetch` prefers to source from
+football-data.org — Premier League, La Liga, Serie A, Bundesliga, Ligue 1,
+Liga Portugal, Eredivisie — have `api_football_id = NULL` on their historical
+rows, so `fetch_and_store_match_stats` skips every one of them. Roughly 17,500
+finished matches are structurally unreachable by `--stats` in their current state.
+
+This is not a bug in the stats fetcher — it was verified working (10/10 fixtures
+populated for Saudi Pro League, including xG, possession and passes). It is a
+consequence of source preference.
+
+Two ways out, neither yet applied at scale:
+
+1. Run plain `footy fetch` (no `--stats`) once per FDO league. `upsert_match`
+   carries `api_football_id=COALESCE(matches.api_football_id, excluded.api_football_id)`,
+   so an API-Football pass backfills the missing ids in place; `--stats` can then
+   reach those rows.
+2. Let it resolve naturally — fixtures fetched from the 2026/27 season onward
+   arrive with an `api_football_id` already attached.
+
+Either path is bounded by the free tier: 100 requests/day, 10 requests/minute.
+
+---
+
+*Report generated: 2026-08-05 · 200 matches · 12,982 settled picks · 194 tests passing*
+*Current state: HIGH 80.3% · MEDIUM 67.0% · Brier 0.2037 · VALUE_MIN_ODDS 1.32*
+*Database: 21,935 matches (19,484 finished) · 325 teams · 12 leagues*
+*Next milestone: backfill api_football_id for FDO leagues to activate xG · real-season calibration tracking*
