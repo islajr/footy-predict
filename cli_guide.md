@@ -1,7 +1,8 @@
 # Footy Predict — Complete CLI Guide
 
 > **Local-first. Decision-support. No hosting required.**
-> Version: July 2026 · 134 tests passing · HIGH accuracy 79.9% · MEDIUM 62.7%
+> Version: August 2026 · 194 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
+> 16 factors · 15 market families (~65 picks/fixture) · 12 leagues · 21,935 matches
 
 ---
 
@@ -16,10 +17,12 @@
 7. [Scenario Recipes](#7-scenario-recipes)
 8. [Understanding the Output](#8-understanding-the-output)
 9. [Current Shortcomings — Honest Assessment](#9-current-shortcomings--honest-assessment)
-10. [Season Readiness — Is the App Ready?](#10-season-readiness--is-the-app-ready)
-11. [What to Look Forward To](#11-what-to-look-forward-to)
-12. [How to Win Consistently](#12-how-to-win-consistently)
-13. [Local-First Operating Model](#13-local-first-operating-model)
+10. [Data Integrity — What Was Fixed and What to Watch](#10-data-integrity--what-was-fixed-and-what-to-watch)
+11. [Season Readiness — Is the App Ready?](#11-season-readiness--is-the-app-ready)
+12. [What to Look Forward To](#12-what-to-look-forward-to)
+13. [How to Win — The Complete Strategy](#13-how-to-win--the-complete-strategy)
+14. [Troubleshooting](#14-troubleshooting)
+15. [Local-First Operating Model](#15-local-first-operating-model)
 
 ---
 
@@ -31,7 +34,7 @@ Footy Predict is a **decision-support system** for building football parlays. It
 
 - Collecting and storing historical match data, team statistics, form tables, head-to-head records, and standings from free APIs
 - Running a 16-factor weighted analysis model across every upcoming fixture
-- Generating ranked picks across 11 betting markets with stated probabilities and detailed rationale
+- Generating ranked picks across 15 market families with stated probabilities and detailed rationale
 - Filtering those picks to a **value zone** — picks where the model is confident AND the implied odds are worth including in a parlay
 - Presenting everything in a scannable, plain-English report you can use as the starting point for your own research
 
@@ -42,7 +45,7 @@ The output is: *"here is what the data says, here is why, here is how confident 
 - It is **not an automated betting system**. It never places bets or tells you definitively to bet on something.
 - It is **not infallible**. An 80% HIGH confidence hit rate means 1 in 5 HIGH picks is wrong. At 50 legs, roughly 10 legs will lose on an average week.
 - It is **not a replacement for your knowledge**. A model does not know that a key player is suspended or that the manager was sacked on Wednesday. That's your edge — use the model's signal, then apply context.
-- It is **not yet profitable on its own terms** until you verify that its HIGH picks have a real edge over SportyBet's offered odds. That requires running it through at least one full season with records kept.
+- It is **not yet profitable on its own terms** until you verify that its picks have a real edge over SportyBet's offered odds. That requires running it through at least one full season with records kept.
 
 ### The Rationale Behind Building This
 
@@ -54,7 +57,7 @@ Football betting markets are inefficient in specific, exploitable ways:
 
 3. **Accumulator structure**: A 50-leg parlay at 80% per leg with fair odds is approximately breakeven. Any genuine edge — even 3-5% per pick over the bookmaker's implied probability — compounds explosively in a large accumulator.
 
-4. **Free data availability**: API-Football provides full stats free at 100 requests/day. This project mines that data systematically and builds the analysis layer the bookmakers don't want you to have.
+4. **Free data availability**: API-Football provides stats free at 100 requests/day, and football-data.co.uk provides unlimited historical CSVs. This project mines both systematically and builds the analysis layer on top.
 
 ---
 
@@ -64,38 +67,41 @@ Football betting markets are inefficient in specific, exploitable ways:
 
 Every match analysis runs 16 independent factors. Each produces a **score** (−1.0 to +1.0, negative = favours away) and a **confidence** (0.0 to 1.0, based on data availability):
 
-| Factor | What It Measures | Data Source |
-|---|---|---|
-| `recent_form` | Last 10 results PPG, win rate, form string, trend | `matches` DB |
-| `home_form` | Home-only win rate, GPG, CPG, CS rate, streak | `matches` DB |
-| `away_form` | Away-only win rate, GPG, CPG, CS rate, streak | `matches` DB |
-| `head_to_head` | H2H record, BTTS rate, avg goals, venue-specific | `matches` DB |
-| `league_position` | Table position, points gap, GD, form string from standings | `standings` DB |
-| `momentum` | Last 3 vs previous 3 PPG — improving or declining? | `matches` DB |
-| `scoring_frequency` | Goals per game (home/away split), blank game rate | `matches` DB |
-| `defensive_record` | Goals conceded per game, clean sheet rate (home/away split) | `matches` DB |
-| `scoring_patterns` | BTTS rate, Over 2.5 rate, Poisson λ, pre-computed O/U probs | `team_season_stats` |
-| `goal_timing` | 1st half vs 2nd half goal split, WEH historical rate | `match_stats` DB |
-| `rest_days` | Days since last match for each team, congestion flags | `matches` DB |
-| `rivalry` | Derby detection by name heuristic + known pairs list | Static config |
-| `attacking_matchup` | Home GPG vs Away CPG, Away GPG vs Home CPG — net attack edge | `matches` DB |
-| `venue_advantage` | Team's home win rate vs their away win rate (pure ground bias) | `matches` DB |
-| `opponent_strength` | Strength-adjusted PPG using opponent standings rank | `matches` + `standings` |
-| `xg_quality` | xG per game, xG vs actual ratio, xG against (shot quality) | `match_stats` (xG col) |
+| Factor | What It Measures | Data Source | Coverage |
+|---|---|---|---|
+| `recent_form` | Last 10 results PPG, win rate, form string, trend | `matches` DB | 100% |
+| `home_form` | Home-only win rate, GPG, CPG, CS rate, streak | `matches` DB | 100% |
+| `away_form` | Away-only win rate, GPG, CPG, CS rate, streak | `matches` DB | 100% |
+| `head_to_head` | H2H record, BTTS rate, avg goals, venue-specific | `matches` DB | 100% |
+| `league_position` | Table position, points gap, GD, form string | `standings` DB | **64%** |
+| `momentum` | Last 3 vs previous 3 PPG — improving or declining? | `matches` DB | 100% |
+| `scoring_frequency` | Goals per game (home/away split), blank game rate | `matches` DB | 100% |
+| `defensive_record` | Goals conceded per game, clean sheet rate | `matches` DB | 100% |
+| `scoring_patterns` | BTTS rate, Over 2.5 rate, Poisson λ, O/U probs | `team_season_stats` | 100% |
+| `goal_timing` | 1st half vs 2nd half goal split, WEH historical rate | `match_stats` DB | 100% |
+| `rest_days` | Days since last match for each team, congestion flags | `matches` DB | 100% |
+| `rivalry` | Derby detection by name heuristic + known pairs | Static config | 100% |
+| `attacking_matchup` | Home GPG vs Away CPG and vice versa — net attack edge | `matches` DB | 100% |
+| `venue_advantage` | Team's home win rate vs their away win rate | `matches` DB | 100% |
+| `opponent_strength` | Strength-adjusted PPG using opponent standings rank | `matches` + `standings` | **67.5%** |
+| `xg_quality` | xG per game, xG vs actual ratio, xG against | `match_stats.expected_goals` | **0%** |
+
+> [!WARNING]
+> **`xg_quality` has 0% coverage and will not self-heal.** Earlier versions of this guide said it "populates automatically once the season starts and you run `footy fetch --stats`." That is wrong, and the reason is worth understanding — see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch). The factor contributes 0 to analysis but breaks nothing.
 
 > [!NOTE]
-> `xg_quality` currently has **0% data coverage** — xG data is not in the historical CSV files and requires API-Football's `/fixtures/statistics` endpoint. It will populate automatically once the 2026/27 season starts and you run `footy fetch --stats`. Until then, it contributes 0 to the analysis but does not break anything.
+> `league_position` and `opponent_strength` sit at ~65% because standings are only stored for league-seasons that were fetched from an API — the historical CSV bulk-load carries results but no tables. Both improve as you fetch standings through the season.
 
 ### The Engine Layer
 
-1. All 16 factors run in parallel for each match
+1. All 16 factors run for each match
 2. Factor scores are **weighted** (see `FACTOR_WEIGHTS` in `config.py`) and aggregated into a single `overall_score` (−1 to +1)
 3. Confidence is computed as a weighted average of factor confidences
 4. The engine classifies data quality as HIGH/MEDIUM/LOW based on coverage
 
 ### The Market Layer
 
-The `overall_score` and individual factor data feed into 11 market-specific models:
+The `overall_score` and individual factor data feed into 15 market families:
 
 | Market | How the probability is computed |
 |---|---|
@@ -108,22 +114,31 @@ The `overall_score` and individual factor data feed into 11 market-specific mode
 | `win-either-half` | Three-way blend: outright quality (45%) + historical WEH rate (35%) + H1 win rate (20%), capped at 0.82 |
 | `handicap` | Expected goal differential from `attacking_matchup` factor |
 | `gg-ng` | Both Teams to Score from historical BTTS rate + Poisson scoring participation |
-| `1x2-1up` | Poisson P(team ever leads by ≥1) — lead trigger probability |
-| `1x2-2up` | Poisson P(team ever leads by ≥2 OR outright wins) — safeguard pick |
+| `1x2` (1UP sub-picks) | Poisson P(team ever leads by ≥1) — lead trigger probability. Stored under market `1x2` as picks `Home 1X2 - 1UP` / `Away 1X2 - 1UP` |
+| `1x2` (2UP sub-picks) | Poisson P(team ever leads by ≥2 OR outright wins) — safeguard pick. Stored as `Home 1X2 - 2UP` / `Away 1X2 - 2UP` |
+| `first-half-over-under-*` | Poisson on FT λ × team's historical H1 goal % (from `goal_timing`), 25% shrunk toward H1 prior (0.50 goals/team), Dixon-Coles correction |
+| `second-half-over-under-*` | Same using H2 goal % and H2 prior (0.56 goals/team) — SH is typically higher-scoring |
+| `home/away-team-first-half-over-under-*` | Per-team H1 Poisson λ |
+| `home/away-team-second-half-over-under-*` | Per-team H2 Poisson λ |
+
+> [!IMPORTANT]
+> **The engine stores both sides of every binary market.** For `over-under-2.5` it records "Over 2.5" at p=0.664 *and* "Under 2.5" at p=0.336. This is by design — it lets you see the full picture and lets `--market` filters show both directions. But it has a consequence that trips up anyone reading raw accuracy numbers: since exactly one side of each pair always wins, **per-market hit rates mechanically converge on 50%**, and any "overall accuracy" figure lands near 49–50% no matter how good the model is.
+>
+> Only **confidence tiers** and the **Brier score** measure quality. Tiers filter to the side the model actually favours; Brier scores probability calibration rather than pick selection. Never read the flat 50% next to `over-under-2.5` in a simulation report as a defect.
 
 ### Calibration
 
-After each simulation or real-season tracking run, the engine automatically calibrates factor weights based on which factors correlate most with correct predictions. The Calibrator updates weights in `calibration_weights.json` if any factor deviates significantly from baseline accuracy.
+After each simulation or real-season tracking run, the engine calibrates factor weights based on which factors correlate most with correct predictions. The Calibrator updates weights in `calibration_weights.json` if any factor deviates significantly from baseline accuracy.
 
 ### Probability Shrinkage — Why It's Critical
 
-Raw logistic models and Poisson models produce probabilities that are too extreme — they can say P=0.93 for outcomes that hit only 78% of the time. The system applies **three layers of shrinkage**:
+Raw logistic and Poisson models produce probabilities that are too extreme — they can say P=0.93 for outcomes that hit only 78% of the time. The system applies **three layers of shrinkage**:
 
 1. **1X2 shrinkage**: 30% regression toward European priors. Caps: home ≤ 0.72, away ≤ 0.65.
 2. **Poisson λ shrinkage**: 25% regression toward league mean (1.35 GPG) for all goals-based models.
 3. **Dixon-Coles O/U correction**: When expected total is within 0.6 goals of the line, shrink toward 0.5.
 
-This is what took HIGH accuracy from 77.2% → 79.9% and the Brier score from 0.2138 → 0.2064.
+This took HIGH accuracy from 77.2% → 79.9% and the Brier score from 0.2138 → 0.2064. The August data-integrity work then moved these to 80.3% and 0.2037.
 
 ---
 
@@ -135,31 +150,25 @@ This is what took HIGH accuracy from 77.2% → 79.9% and the Brier score from 0.
 - Git
 - ~500 MB disk space for the database
 - API keys (free, no card required):
-  - **API-Football**: [dashboard.api-football.com/register](https://dashboard.api-football.com/register) — primary source, 100 req/day
+  - **API-Football**: [dashboard.api-football.com/register](https://dashboard.api-football.com/register) — primary source, 100 req/day, 10 req/min
   - **Football-Data.org**: [football-data.org/client/register](https://www.football-data.org/client/register) — secondary, 7 leagues
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/islajr/footy-predict.git
 cd footy-predict
 
-# Create virtual environment
 python3 -m venv .venv
 source .venv/bin/activate       # Linux/Mac
 # .venv\Scripts\activate.bat    # Windows
 
-# Install the package (editable mode — changes to source code take effect immediately)
 pip install -e ".[dev]"
 
-# Verify installation
 footy --help
 ```
 
 ### Environment Setup
-
-Copy the example env file and fill in your API keys:
 
 ```bash
 cp .env.example .env
@@ -183,29 +192,28 @@ FOOTBALL_DATA_ORG_KEY=your_fdo_key_here
 
 ### First-Time Bootstrap (New Installation)
 
-Run these steps once when you first set up the database:
-
 ```bash
 # Step 1: Load historical data from free CSVs (no API quota used)
-# This gets you 3-5 seasons of results, form, and patterns
-footy load-history                     # all supported leagues, last 5 seasons
+footy load-history --seasons 5          # all CSV-backed leagues, 5 seasons
 footy load-history --league premier-league --seasons 5   # single league
 
-# Step 2: Fetch current season standings and team stats (costs ~30 API calls)
-footy fetch --league premier-league    # repeat for each league
-footy fetch --league la-liga
-footy fetch --league bundesliga
-# ... etc for each of the 12 supported leagues
+# Step 2: Run database migrations (safe to re-run; idempotent)
+python migrations/run.py
 
-# Step 3: Verify everything loaded
+# Step 3: Fetch current standings and team stats (costs ~5-10 calls per league)
+footy fetch --league premier-league
+footy fetch --league la-liga
+# ... spread the remaining leagues over 2-3 days
+
+# Step 4: Verify
 footy status
 
-# Step 4: Run your first analysis
+# Step 5: First analysis
 footy report
 ```
 
 > [!IMPORTANT]
-> **API Quota**: You have 100 requests/day free on API-Football. Do NOT fetch all 12 leagues on the same day. Spread fetches over 3-4 days or use `footy fetch-upcoming` (quota-aware) once the season starts.
+> **API Quota**: 100 requests/day and 10 requests/minute on API-Football. Do NOT fetch all 12 leagues in one day. Spread over 3-4 days, or use `footy fetch-upcoming` (quota-aware) once the season starts.
 
 ---
 
@@ -217,10 +225,10 @@ footy report
 |---|---|---|
 | `CONFIDENCE_THRESHOLDS["HIGH"]` | `0.80` | Picks at or above this probability are labelled HIGH |
 | `CONFIDENCE_THRESHOLDS["MEDIUM"]` | `0.60` | MEDIUM tier floor |
-| `VALUE_MIN_ODDS` | `1.32` | Default odds floor for `footy report` and `--min-odds` filter |
+| `VALUE_MIN_ODDS` | `1.32` | Default odds floor for `footy report` and `--min-odds` |
 | `FACTOR_WEIGHTS` | see config | Per-factor weight in the aggregated score |
-| `CACHE_TTL` | varies per endpoint | How long API responses are cached (standings: 6h, fixtures: 2h) |
-| `LEAGUES` | 12 leagues | League slugs and API IDs for supported competitions |
+| `CACHE_TTL` | varies | API response cache (standings: 6h, fixtures: 2h) |
+| `LEAGUES` | 12 leagues | League slugs, API IDs, CSV codes, season formats |
 
 ### Environment Variables
 
@@ -234,20 +242,27 @@ footy report
 
 ### Supported Leagues
 
-| Slug | League | API Source |
-|---|---|---|
-| `premier-league` | English Premier League | API-Football |
-| `la-liga` | Spanish La Liga | API-Football |
-| `bundesliga` | German Bundesliga | API-Football |
-| `serie-a` | Italian Serie A | API-Football |
-| `ligue-1` | French Ligue 1 | API-Football |
-| `eredivisie` | Dutch Eredivisie | API-Football |
-| `liga-portugal` | Portuguese Primeira Liga | API-Football |
-| `championship` | English Championship | API-Football |
-| `belgian-pro-league` | Belgian Pro League | API-Football |
-| `turkish-super-lig` | Turkish Süper Lig | API-Football |
-| `scottish-premiership` | Scottish Premiership | API-Football |
-| `brasileirao` | Brazilian Série A | API-Football |
+Twelve leagues. `fetch` prefers football-data.org where a code exists (saves API-Football quota); `load-history` uses the CSV code.
+
+| Slug | League | FDO code | CSV code | Season format | Matches in DB |
+|---|---|---|---|---|---|
+| `premier-league` | Premier League | `PL` | `E0` | european | 3,420 |
+| `la-liga` | La Liga | `PD` | `SP1` | european | 2,719 |
+| `serie-a` | Serie A | `SA` | `I1` | european | 2,309 |
+| `bundesliga` | Bundesliga | `BL1` | `D1` | european | 1,882 |
+| `ligue-1` | Ligue 1 | `FL1` | `F1` | european | 1,996 |
+| `liga-portugal` | Liga Portugal | `PPL` | `P1` | european | 2,021 |
+| `eredivisie` | Eredivisie | `DED` | `N1` | european | 1,838 |
+| `super-lig` | Süper Lig | — | `T1` | european | 1,910 |
+| `belgian-pro-league` | Belgian Pro League | — | `B1` | european | 1,662 |
+| `scottish-premiership` | Scottish Premiership | — | `SC0` | european | 1,146 |
+| `eliteserien` | Eliteserien | — | `N0` | **calendar** | 726 |
+| `saudi-pro-league` | Saudi Pro League | — | — | european | 306 |
+
+> [!NOTE]
+> **`saudi-pro-league` has no CSV source** — `load-history` skips it entirely. It is API-only, so its history is limited to what you fetch.
+>
+> **`eliteserien` uses `calendar` season format** (2024, not 2024-25) because Norwegian football runs March–December. Its CSV source is also unreliable — see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch).
 
 ---
 
@@ -258,78 +273,112 @@ footy report
 ```
 footy --help                        Show all commands
 footy COMMAND --help                Show help for a specific command
+footy -v COMMAND                    Run with debug logging
 ```
+
+Full command list: `status`, `fetch`, `fetch-upcoming`, `load-history`, `analyze matchweek`, `analyze match`, `picks`, `report`, `parlay`, `record`, `accuracy`, `calibrate`, `serve`, `bot start`.
 
 ---
 
 ### `footy status`
 
-**What it does**: Shows your API quota usage, cache stats, database record counts, and quota budget for the day.
+**What it does**: Shows API quota usage, cache stats, database record counts, and the day's quota budget.
 
 ```bash
-footy status
+footy status                        # no options
 ```
 
-**Use it**: Every morning before fetching, to know how many API calls you have left.
+**Use it**: Every morning before fetching, to know how many API calls remain.
 
 ---
 
 ### `footy fetch`
 
-**What it does**: Fetches fixtures, standings, and team statistics for a league from the API, storing everything in the local database.
+**What it does**: Fetches fixtures, standings, and team statistics for a league, storing everything locally.
 
 ```bash
-footy fetch                         # fetch all configured leagues
-footy fetch --league premier-league # fetch a single league
-footy fetch --stats                 # also fetch per-match statistics (uses more quota)
-footy fetch --stats-limit 20        # fetch stats for last 20 matches only
+footy fetch                              # all configured leagues
+footy fetch -l premier-league            # single league (also --league)
+footy fetch --stats                      # also backfill per-match statistics
+footy fetch -l saudi-pro-league --stats --stats-limit 20   # cap the backfill
 ```
 
-**Quota cost**: ~5-10 calls per league (fixtures + standings + team stats). `--stats` adds 1 call per match.
+| Option | Meaning |
+|---|---|
+| `-l`, `--league TEXT` | League slug. Omit for all. |
+| `--stats` | Also fetch per-match statistics (xG, possession, passes) |
+| `--stats-limit INTEGER` | Max finished matches to backfill (default 20) |
+
+**Quota cost**: ~5–10 calls per league. `--stats` adds ~1 call per match, rate-limited to 10/minute.
+
+> [!WARNING]
+> `--stats` only reaches matches that have an `api_football_id`. Matches loaded from CSV or football-data.org do not have one, so `--stats` silently skips them. See [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch).
 
 ---
 
 ### `footy fetch-upcoming`
 
-**What it does**: A quota-aware weekend-optimised fetch. Calculates your remaining daily budget and fetches only the leagues and fixtures relevant to the upcoming weekend, staying within limits.
+**What it does**: A quota-aware weekend-optimised fetch. Calculates the remaining daily budget and fetches only the leagues and fixtures relevant to the coming days.
 
 ```bash
-footy fetch-upcoming                # auto-calculates budget and fetches
-footy fetch-upcoming --days 4       # look ahead 4 days instead of 7
+footy fetch-upcoming                # next 7 days, auto budget
+footy fetch-upcoming -d 4           # look ahead 4 days (also --days)
+footy fetch-upcoming --budget 30    # spend at most 30 API calls
+footy fetch-upcoming -l premier-league   # single league
 ```
 
-**Use it**: Every Thursday evening as the first step of your weekly workflow. This is the command that should be run before `footy report`.
+| Option | Meaning |
+|---|---|
+| `-d`, `--days INTEGER` | Sync fixtures for the next N days (default 7) |
+| `--budget INTEGER` | Max API-Football calls to spend in this run |
+| `-l`, `--league TEXT` | Restrict to one league slug |
+
+**Use it**: Every Thursday evening, as step one of the weekly workflow.
 
 ---
 
 ### `footy load-history`
 
-**What it does**: Downloads historical match CSVs from football-data.co.uk (free, no API key, no quota) and bulk-loads them into the database. Gives you 3-8 seasons of results immediately.
+**What it does**: Downloads historical match CSVs from football-data.co.uk (free, no key, no quota) and bulk-loads them. No API cost at all.
 
 ```bash
-footy load-history                           # all leagues, last 5 seasons
-footy load-history --league premier-league   # single league
-footy load-history --seasons 3               # last 3 seasons only
-footy load-history --start-season 2018       # from 2018 onwards
+footy load-history                           # all CSV leagues, last 3 seasons
+footy load-history -l premier-league          # single league
+footy load-history -s 5                       # last 5 seasons (also --seasons)
+footy load-history -l serie-a -s 8            # 8 seasons of Serie A
 ```
 
-**Use it**: Once on initial setup, and again at the start of each new season to pull the just-completed season's full CSV.
+| Option | Meaning |
+|---|---|
+| `-l`, `--league TEXT` | League slug. Omit for all leagues with CSV data. |
+| `-s`, `--seasons INTEGER` | Number of past seasons to load (**default 3**) |
+
+> [!NOTE]
+> There is no `--start-season` option. Use `--seasons N` to control depth.
+>
+> **`--seasons` counts back from the last season actually played, not the current calendar season.** In pre-season (August, before month 9) European leagues step back one season, so `--seasons 1` loads the just-completed season rather than an empty CSV for a season that has not started. Calendar-format leagues like Eliteserien step back before March.
+
+**Use it**: Once on setup, and again at the start of each new season to pull the just-completed season's full CSV.
 
 ---
 
 ### `footy analyze matchweek`
 
-**What it does**: Runs the full 16-factor analysis engine on all upcoming fixtures in the window and displays a detailed per-match breakdown with factor scores and market recommendations.
+**What it does**: Runs the full 16-factor analysis on all upcoming fixtures in the window, with a detailed per-match breakdown.
 
 ```bash
-footy analyze matchweek                      # all leagues, next 7 days
-footy analyze matchweek --league premier-league   # single league
-footy analyze matchweek --from 2026-08-16 --to 2026-08-18   # specific date range
+footy analyze matchweek                          # all leagues, upcoming
+footy analyze matchweek -l premier-league        # single league
+footy analyze matchweek --from 2026-08-16 --to 2026-08-18
 ```
 
-**Output**: Per-match analysis card showing: overall score and direction, each factor's score and confidence, all market recommendations sorted by probability.
+| Option | Meaning |
+|---|---|
+| `-l`, `--league TEXT` | League slug. Omit for all. |
+| `--from TEXT` | Start date (YYYY-MM-DD) |
+| `--to TEXT` | End date (YYYY-MM-DD) |
 
-**Use it**: When you want the deep-dive view. For the weekly workflow, `footy report` is more efficient.
+**Use it**: For the deep-dive view. `footy report` is more efficient for the weekly routine.
 
 ---
 
@@ -339,50 +388,68 @@ footy analyze matchweek --from 2026-08-16 --to 2026-08-18   # specific date rang
 
 ```bash
 footy analyze match "Arsenal vs Chelsea"
-footy analyze match "Barcelona vs Real Madrid" --league la-liga
+footy analyze match "Barcelona vs Real Madrid"
 ```
 
-**Use it**: When you want to understand a specific fixture in detail before deciding whether to include it in your parlay.
+Takes a single `FIXTURE` argument in the form `"Team A vs Team B"`. **No options** — there is no `--league` flag; team names are matched across all leagues.
+
+**Use it**: To understand a specific fixture in detail before committing it to a parlay.
 
 ---
 
 ### `footy picks`
 
-**What it does**: Displays all picks from upcoming fixtures, grouped by confidence tier. The broad view — all markets, all matches.
+**What it does**: Displays all picks from upcoming fixtures, grouped by confidence tier. The broad view.
 
 ```bash
-footy picks                                  # all picks, all tiers, no odds filter
-footy picks -c HIGH                          # HIGH confidence only
-footy picks -c HIGH --min-odds 1.32          # HIGH confidence + value zone (recommended)
-footy picks -c MEDIUM --min-odds 1.20        # MEDIUM picks with looser odds floor
-footy picks --market over-under-2.5          # single market across all matches
-footy picks --market 1x2 -c HIGH --min-odds 1.32     # 1X2 HIGH value picks only
-footy picks --league premier-league -c HIGH  # Premier League only
+footy picks                                  # everything, no filter
+footy picks -c HIGH                          # HIGH only
+footy picks -c HIGH -o 1.32                  # HIGH + value zone (also --min-odds)
+footy picks -c MEDIUM -o 1.32                # recommended parlay filter
+footy picks -m over-under-2.5                # single market (also --market)
+footy picks -m first-half-over-under         # all 1st half O/U picks
+footy picks -l premier-league -c HIGH        # Premier League only
 ```
 
-**Confidence tiers**:
-- `HIGH` (≥0.80 probability): Model is confident. Historical hit rate: **79.9%**
-- `MEDIUM` (0.60–0.80): Moderate confidence. Historical hit rate: **62.7%**
-- `LOW` (<0.60): Weak signal. Use for information only, not for parlay selection.
+| Option | Meaning |
+|---|---|
+| `-c`, `--min-confidence [HIGH\|MEDIUM\|LOW]` | Tier floor (case-insensitive) |
+| `-l`, `--league TEXT` | League slug filter |
+| `-m`, `--market TEXT` | Market code filter |
+| `-o`, `--min-odds FLOAT` | Minimum model implied odds |
 
-**Odds floor note**: `--min-odds 1.32` targets approximately ≥1.20 real SportyBet odds after the ~10% bookmaker margin is applied. This is the recommended filter for parlay construction. To override permanently, set `VALUE_MIN_ODDS=1.32` in your `.env`.
+**Confidence tiers**:
+- `HIGH` (≥0.80 probability): hit rate **80.3%**
+- `MEDIUM` (0.60–0.80): hit rate **67.0%**
+- `LOW` (<0.60): hit rate ~35%. Information only — never in a parlay.
 
 ---
 
 ### `footy report` ⭐ (Primary Weekend Command)
 
-**What it does**: Generates the weekly decision-support pick report. For each fixture, shows the single best value-zone pick, its rationale, risk flags, and 4 alternative picks. Designed to be read, researched, and used as the starting point for your parlay.
+**What it does**: Generates the weekly decision-support report. Per fixture: the best value-zone pick, its rationale, risk flags, and 4 alternatives.
 
 ```bash
-footy report                                 # HIGH picks, ≥1.32 odds, next 7 days
-footy report --days 3                        # this weekend only (Friday to Sunday)
-footy report --min-odds 1.40                 # stricter odds floor
-footy report --min-odds 1.20                 # looser floor (more picks)
-footy report --min-confidence MEDIUM         # include MEDIUM tier picks too
-footy report --league premier-league         # Premier League fixtures only
-footy report --output weekend.txt            # save report to a text file
-footy report --output weekend.txt --days 3   # save this weekend's report to file
+footy report                                 # MEDIUM, ≥1.32 odds, next 7 days
+footy report -d 3                            # this weekend only (also --days)
+footy report -o 1.40                         # stricter odds floor
+footy report -c HIGH                         # HIGH-confidence picks
+footy report -c HIGH -o 0                    # ALL HIGH picks, no odds filter
+footy report -l premier-league               # one league
+footy report -f weekend.txt                  # save to file (also --output)
+footy report -d 3 -f weekend.txt             # combine
 ```
+
+| Option | Meaning |
+|---|---|
+| `-o`, `--min-odds FLOAT` | Minimum model implied odds (default `VALUE_MIN_ODDS`) |
+| `-c`, `--min-confidence [HIGH\|MEDIUM\|LOW]` | Tier floor (**default MEDIUM**) |
+| `-l`, `--league TEXT` | League slug filter |
+| `-d`, `--days INTEGER` | Days ahead to look for fixtures |
+| `-f`, `--output PATH` | Save the report as plain text |
+
+> [!IMPORTANT]
+> **`report` defaults to MEDIUM, not HIGH.** This is deliberate: HIGH picks (P≥80%) have model odds ≤1.25, below the 1.32 value floor. The real value zone for accumulators is MEDIUM (P 60–76%, model odds 1.32–1.67). Use `-c HIGH` when you specifically want maximum certainty regardless of odds.
 
 **Output structure per fixture**:
 ```
@@ -393,107 +460,125 @@ footy report --output weekend.txt --days 3   # save this weekend's report to fil
      Also: Away 1UP 81% 1.24  |  Over 2.5 71% 1.41  |  WEH Away 72% 1.39
 ```
 
-**Key fields**:
-- **TOP PICK**: The highest-probability pick that passes both the confidence and odds filters
-- **%**: Model's estimated probability this pick is correct
-- **odds**: Model implied odds (1/probability) — real SportyBet odds ≈ this × 0.90
-- **Confidence tier**: HIGH/MEDIUM based on the probability threshold
-- **Rationale**: First 220 characters of the model's reasoning
-- **⚠ Risk flags**: Model-identified concerns (derby, low data quality, congested fixtures)
-- **Also**: Next 4 best value-zone picks for the same match
-
 > [!IMPORTANT]
-> The odds shown are **model implied odds**, computed as `1/P(model)`. SportyBet builds in ~10% margin, so their actual offered odds will be lower. A model odds of 1.40 typically corresponds to SportyBet odds of ~1.25-1.30. This is factored into the default 1.32 threshold (targeting ~1.20 real odds).
+> Odds shown are **model implied odds** = `1/P(model)`. SportyBet builds in ~10% margin, so their offered odds will be lower. Model odds of 1.40 ≈ SportyBet 1.25–1.30. The default 1.32 floor already accounts for this (targeting ~1.20 real).
 
 ---
 
 ### `footy parlay`
 
-**What it does**: Builds a suggested parlay of N picks, selecting the highest-probability picks across fixtures, one per match.
+**What it does**: Builds a suggested parlay of N picks, one per fixture, highest probability first.
 
 ```bash
-footy parlay --size 50                        # 50-leg parlay, MEDIUM+ confidence
-footy parlay --size 50 -c HIGH --min-odds 1.32   # 50-leg value zone parlay
-footy parlay --size 30 -c HIGH --min-odds 1.40   # stricter filter, 30 legs
-footy parlay --size 50 --league premier-league -c HIGH   # Premier League only
+footy parlay -n 50                           # 50 legs (also --size)
+footy parlay -n 50 -c MEDIUM -o 1.32         # value zone parlay
+footy parlay -n 30 -c HIGH -o 1.40           # stricter, 30 legs
+footy parlay -n 50 -l premier-league -c HIGH
 ```
 
-**Output**: A ranked table showing match, league, market, pick, probability, model odds, and confidence for each leg. Combined accumulator probability is shown at the bottom.
+| Option | Meaning |
+|---|---|
+| `-n`, `--size INTEGER` | Number of picks for the parlay |
+| `-c`, `--min-confidence [HIGH\|MEDIUM\|LOW]` | Tier floor |
+| `-l`, `--league TEXT` | League slug filter |
+| `-o`, `--min-odds FLOAT` | Minimum model implied odds |
 
 > [!NOTE]
-> For a 50-leg parlay at 80% accuracy per leg, the probability of all 50 winning is approximately 0.80^50 ≈ 0.00014 (1 in 7,000). This is expected — the payout is enormous when it hits. The model helps ensure each individual leg has a genuine probability basis, not gut feel.
+> For 50 legs at 80% per leg, P(all win) ≈ 0.80^50 ≈ 1 in 7,000. That is expected — the payout is enormous when it lands. The model's role is ensuring each leg has a genuine probability basis.
 
 ---
 
 ### `footy record`
 
-**What it does**: Records the actual results of finished matches against the model's predictions, building the accuracy database.
+**What it does**: Records actual results of finished matches against predictions, building the accuracy database.
 
 ```bash
-footy record                                 # record all unrecorded finished matches
-footy record --league premier-league         # single league
+footy record                        # no options — records all unrecorded finished matches
 ```
 
-**When to run**: Every Monday morning after the weekend's matches are finished. This is what feeds the `footy accuracy` command and the calibration system.
+There is **no `--league` filter**; it processes everything outstanding.
+
+**When**: Every Monday morning after the weekend's matches finish.
 
 > [!IMPORTANT]
-> **Run this every week.** The calibration system (which improves factor weights over time) only works if results are being recorded. Skipping this means the model cannot self-improve from season data.
+> **Run this every week.** Calibration only works if results are recorded. Skipping it means the model cannot self-improve.
 
 ---
 
 ### `footy accuracy`
 
-**What it does**: Displays the accuracy dashboard — how well the model's picks have performed against recorded results.
+**What it does**: The accuracy dashboard — how picks have performed against recorded results.
 
 ```bash
-footy accuracy                               # full accuracy report, all markets
-footy accuracy --market over-under-2.5       # single market accuracy
-footy accuracy --league premier-league       # single league accuracy
-footy accuracy --market 1x2 --league la-liga # combined filter
+footy accuracy                               # all markets
+footy accuracy -m over-under-2.5             # one market (also --market)
+footy accuracy -l premier-league             # one league (also --league)
+footy accuracy -m 1x2 -l la-liga             # combined
 ```
 
-**Output includes**:
-- Overall hit rate by confidence tier (HIGH/MEDIUM/LOW)
-- Hit rate per market
-- Hit rate per league
-- Brier score (calibration quality)
-- Trend over time (improving or declining?)
+| Option | Meaning |
+|---|---|
+| `-m`, `--market TEXT` | Market code filter |
+| `-l`, `--league TEXT` | League slug filter |
 
-**Use it**: Weekly after recording results, and monthly to assess whether the model is outperforming random selection in the markets you're using.
+**Includes**: hit rate by tier, per market, per league; Brier score; trend over time.
+
+> [!NOTE]
+> Remember the both-sides caveat from [Section 2](#the-market-layer): an unfiltered per-market rate near 50% is an artifact. Read the tier breakdown.
 
 ---
 
 ### `footy calibrate`
 
-**What it does**: Runs the weight calibration algorithm, updating factor weights based on which factors have been most accurate in recorded predictions.
+**What it does**: Runs weight calibration, updating factor weights from recorded prediction accuracy.
 
 ```bash
-footy calibrate
+footy calibrate                     # calibrate from settled predictions
+footy calibrate --reset             # restore default weights
 ```
 
-**When to run**: At the end of each month, or after recording at least 50 new match results. The calibrator requires a minimum of 100 settled predictions before making meaningful changes (this threshold is already met: 9,803 predictions in DB).
+| Option | Meaning |
+|---|---|
+| `--reset` | Reset weights to defaults instead of calibrating |
 
-**How it works**: Compares the factor confidence scores for correct predictions vs incorrect predictions. Factors with consistently higher confidence on correct picks get upweighted; factors whose confidence correlates poorly with accuracy get downweighted.
+**When**: Monthly, or after recording ~50 new results. Requires 100+ settled predictions (already satisfied — 13,408 in DB).
+
+**How**: Compares factor confidence on correct vs incorrect predictions. Factors with consistently higher confidence on correct picks get upweighted.
+
+---
+
+### `footy serve`
+
+**What it does**: Starts the FastAPI local web application — a browser UI over the same database and engine.
+
+```bash
+footy serve                          # default host/port
+footy serve --port 8080              # custom port
+footy serve --host 0.0.0.0 --port 8000   # expose on your LAN
+```
+
+| Option | Meaning |
+|---|---|
+| `--host TEXT` | Host interface to bind to |
+| `--port INTEGER` | Port to run on |
+
+**Use it**: When you'd rather read the report in a browser, or want to check picks from your phone on the same network.
 
 ---
 
 ### `footy bot start`
 
-**What it does**: Starts the Telegram bot, which delivers match analysis and picks directly to your Telegram chat.
+**What it does**: Starts the Telegram bot, delivering analysis and picks to your Telegram chat.
 
 ```bash
-footy bot start
+footy bot start                     # runs in foreground
 ```
 
-**Requirements**: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set in `.env`.
-
-**Setup**: Create a bot via [@BotFather](https://t.me/botfather) on Telegram. The bot can deliver `footy report` output directly to your phone.
+**Requires**: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`. Create a bot via [@BotFather](https://t.me/botfather).
 
 ---
 
 ## 6. The Weekly Operating Workflow
-
-This is the recommended routine for getting maximum value from the system.
 
 ### Thursday Evening (30 minutes)
 
@@ -501,200 +586,272 @@ This is the recommended routine for getting maximum value from the system.
 # 1. Check quota before touching anything
 footy status
 
-# 2. Fetch upcoming weekend fixtures (quota-aware — stays within 100/day)
-footy fetch-upcoming --days 4
+# 2. Fetch upcoming weekend fixtures (quota-aware)
+footy fetch-upcoming -d 4
 
-# 3. Check status again to confirm data loaded
+# 3. Confirm the data landed
 footy status
 
-# 4. Generate the decision-support report and save it
-footy report --days 4 --output ~/footy/$(date +%Y-%m-%d)-report.txt
+# 4. Generate and save the report
+footy report -d 4 -f ~/footy/$(date +%Y-%m-%d)-report.txt
 
-# 5. Read the report. Research the flagged fixtures. Note your initial thoughts.
+# 5. Read it. Research flagged fixtures. Note your initial thoughts.
 ```
 
 ### Friday (20 minutes — research and refinement)
 
 ```bash
-# Review specific fixtures in detail for matches you're unsure about
+# Deep-dive fixtures you're unsure about
 footy analyze match "Real Madrid vs Barcelona"
 footy analyze match "Liverpool vs Man City"
 
-# Check specific markets if you have a hunch
-footy picks -c HIGH --min-odds 1.32 --market win-either-half
-footy picks -c HIGH --min-odds 1.32 --market over-under-2.5
+# Check specific markets on a hunch
+footy picks -c MEDIUM -o 1.32 -m win-either-half
+footy picks -c MEDIUM -o 1.32 -m over-under-2.5
 ```
 
 ### Saturday Morning (10 minutes — final slip)
 
 ```bash
-# Refresh with latest data if quota permits (lineups may have changed)
-footy fetch-upcoming --days 2
+# Refresh if quota permits
+footy fetch-upcoming -d 2
 
-# Build your parlay from the value zone picks
-footy parlay --size 50 -c HIGH --min-odds 1.32
+# Build the parlay
+footy parlay -n 50 -c MEDIUM -o 1.32
 
-# Or review the report once more with the final fixture list
-footy report --days 2
+# Or re-read the report with the final fixture list
+footy report -d 2
 ```
 
 ### Monday Morning (10 minutes — record and review)
 
 ```bash
-# Record weekend results
-footy record
-
-# Check how the model performed this week
-footy accuracy
-
-# Monthly: calibrate weights
-footy calibrate     # run monthly or when accuracy changes significantly
+footy record          # record weekend results
+footy accuracy        # how did the week go?
+footy calibrate       # monthly, or after ~50 new results
 ```
 
 ---
 
 ## 7. Scenario Recipes
 
+### Scenario 0: The Two Primary Workflows
+
+Everything else depends on which mode you're in.
+
+#### Workflow i — Decision-Support Mode (maximum intelligence, requires time)
+
+```bash
+footy picks -c MEDIUM                # all picks at 60%+ confidence, no odds filter
+footy report -c MEDIUM -o 0          # per-fixture report, all value visible
+```
+
+**What you get:** Every pick where the model is at least 60% confident, unfiltered by odds.
+
+**What you do with it:** Open SportyBet. For each pick, check the actual offered odds. Include it if SportyBet offers ≥1.20 **and** your research doesn't override the model.
+
+**Why this is the most powerful mode:** The model's `1/P` implied odds are not SportyBet's odds. Sometimes they offer 1.40 on something the model rates P=0.72 (their implied P=0.71 — no edge). Sometimes 1.50 on something rated P=0.75 (their implied P=0.67 — an 8pp edge). You cannot tell which from the model alone. Manual comparison finds the mismatches.
+
+**Time:** 30–60 minutes. **Best used:** Thursday or Friday.
+
+#### Workflow ii — Systematic Mode (fast, pre-filtered)
+
+```bash
+footy report -c MEDIUM -o 1.32
+footy parlay -n 50 -c MEDIUM -o 1.32
+```
+
+**What you get:** Picks where model implied odds already exceed 1.32 (≈1.20 real after margin).
+
+**The tradeoff:** Good picks get missed. If SportyBet offers 1.35 on something the model rates 0.82 (model odds 1.22, below the floor), this filter discards what might be the best-value pick on the board.
+
+**Time:** 10–15 minutes. **Best used:** Saturday morning, or any time-pressed week.
+
+#### Combining both
+
+1. **Thursday/Friday**: Workflow i. Build a longlist of 60–70 verified picks.
+2. **Saturday morning**: Workflow ii as a sanity check. Investigate strong disagreements.
+3. **Final slip**: Start with the ~30 highest-confidence picks from the longlist, fill from Workflow ii, remove anything you have specific concern about.
+
+---
+
+### Scenario 1: The 64,000-Odds Target — The Math
+
+Working backwards from 64,000 combined odds at 48 active legs:
+
+```
+Average real odds per leg = 64,000^(1/48) ≈ 1.26
+```
+
+At ~10% margin, model implied odds must average ~1.39, i.e. model probability ~0.72 — solidly MEDIUM.
+
+| Per-leg accuracy | P(all 48 win) | Frequency at weekly play |
+|---|---|---|
+| 70% | 1 in 19 million | Extremely rare |
+| 75% | 1 in 1 million | Very rare |
+| 80% | 1 in 79,000 | Possible within years of consistent play |
+| 85% | 1 in 5,800 | Likely within ~2 years |
+| 88% | 1 in 1,500 | Realistic target with good systems |
+| 90% | 1 in 430 | Several times per year |
+
+**The key insight:** A 48/48 parlay doesn't require every pick to be nearly certain. It requires an exceptional week — where your ~80% picks all happen to land. The model's job is keeping you selecting from the ~80% pool consistently, so those weeks come more often.
+
+**What picks look like at ~1.26 average real odds:**
+- Home 1UP where the home side is clearly dominant: ~1.20–1.35
+- Over 1.5 in high-scoring leagues with two attacking sides: ~1.25–1.40
+- Double chance 12 for strong home favourites: ~1.20–1.35
+- Draw no bet for well-supported away teams: ~1.30–1.60
+- Away win for top-table sides visiting mid-table: ~1.40–2.00
+- Home under 2.5 for defensive teams in low-stakes fixtures: ~1.20–1.35
+
+Mixed at ~1.25 across 50 picks: **1.25^50 ≈ 70,000 combined.**
+
+---
+
+### Scenario 2: When to Override the Model
+
+The model processes historical form, standings, H2H, and statistical patterns. It is blind to this week.
+
+**Override when:**
+- A key player (top scorer, starting GK) is ruled out — the model doesn't know
+- The manager changed this week (new-manager bounce isn't modelled)
+- One team has a cup final 4 days later and will rotate
+- The fixture is a derby (model flags it, but you may know the rivalry better)
+- You've watched both teams and one is clearly better than the numbers suggest
+- A promoted/relegated team's profile doesn't reflect their new level
+
+**Trust the model when:**
+- You have a "feeling" you can't articulate
+- Your feeling rests on last week's result rather than underlying performance
+- Data quality is HIGH and multiple factors agree
+- Your concern is about a pick rated 85%+ with strong H2H support
+
+**The decision rule:** Override only with *specific, recent, non-public information*. Trust the model when you have a vague preference or recency bias.
+
+---
+
 ### Scenario A: First Run of the New 2026/27 Season
 
 ```bash
-# Before the season starts (early August):
-footy load-history              # pull 2025/26 CSV data (just-completed season)
-footy calibrate                 # recalibrate weights on full 2025/26 data
+# Early August, before kickoff:
+footy load-history --seasons 1   # pulls the just-completed season (see anchoring note)
+python migrations/run.py         # ensure schema is current
+footy calibrate                  # recalibrate on the full dataset
 
-# First weekend of season (mid-August):
-footy status                    # check quota
-footy fetch-upcoming            # fetch week 1 fixtures
-footy report                    # generate first real-season report
-# NOTE: First 2-3 weeks will have LOW data quality — no season form yet
-# The model will fall back to historical data. Accuracy will be lower.
-# Trust HIGH picks but be conservative until 5+ matches of form exist per team.
+# First weekend (mid-August):
+footy status
+footy fetch-upcoming
+footy report
 ```
 
-### Scenario B: Early Season (Weeks 1-6)
+> [!NOTE]
+> First 2–3 weeks will show LOW data quality — no season form exists yet. The model falls back to historical data. Trust HIGH picks but stay conservative until 5+ matches of form per team.
 
-In the first 6 weeks, teams have played too few matches for form factors to be reliable. The model will show LOW data quality warnings on many fixtures.
+### Scenario B: Early Season (Weeks 1–6)
 
 ```bash
-# Use more conservative filter early
-footy report --min-odds 1.40   # stricter odds floor (fewer but more reliable picks)
-footy report --min-confidence HIGH   # HIGH only, no MEDIUM
+# Conservative filters early
+footy report -o 1.40             # stricter odds floor
+footy report -c HIGH             # HIGH only
 
-# Focus on head-to-head and historical data, not current season form
+# Check what the model actually knows
 footy analyze match "Arsenal vs Chelsea"
-# Look for: data_quality = HIGH, confident factors, good H2H history
+# Look for: data_quality = HIGH, confident factors, deep H2H history
 ```
 
-Strategy for early season:
-- Only pick fixtures where `data_quality = HIGH` in the report
-- Prefer markets where historical data is the dominant signal: H2H (over 10 matches), venue advantage, rivalry
-- Avoid teams with significant summer transfers or new managers (not yet modelled)
-- Expect lower accuracy (aim for >70% HIGH picks) until week 8+
+Strategy:
+- Only pick fixtures where `data_quality = HIGH`
+- Prefer markets where historical data dominates: H2H (10+ matches), venue advantage, rivalry
+- Avoid teams with big summer transfers or new managers (not modelled)
+- Expect lower accuracy until week 8+
 
 ### Scenario C: Building a 50-Leg Weekend Parlay
 
 ```bash
-# Step 1: Generate the value zone report
-footy report --output weekend.txt
+# 1. Generate the report
+footy report -f weekend.txt
 
-# Step 2: View the parlay builder suggestion
-footy parlay --size 50 -c HIGH --min-odds 1.32
+# 2. See the builder's suggestion
+footy parlay -n 50 -c MEDIUM -o 1.32
 
-# Step 3: Cross-reference — which parlay picks also appear in your report?
-# The parlay command picks one pick per match (highest probability).
-# Your report shows the top pick + 4 alternatives per match.
-# Where you disagree with the parlay's top pick, substitute from the report's "Also" list.
+# 3. Cross-reference. The parlay picks one per match (highest probability);
+#    the report shows the top pick plus 4 alternatives. Substitute from the
+#    "Also" list wherever your research disagrees.
 
-# Step 4: If you need more picks (parlay builder comes up short on value zone)
-footy parlay --size 50 -c HIGH --min-odds 1.25   # loosen odds floor slightly
-# or
-footy parlay --size 50 -c MEDIUM --min-odds 1.32  # allow MEDIUM picks at value odds
+# 4. If short on legs:
+footy parlay -n 50 -c MEDIUM -o 1.25    # loosen the floor
+footy parlay -n 50 -c LOW -o 1.32       # not recommended — LOW hits ~35%
 ```
 
-**Parlay construction principles**:
-1. One pick per match — don't double up on the same fixture
-2. Take the highest-probability pick that passes your odds floor per fixture
-3. Do your own research on the top 5-10 picks — flag any you have concerns about
-4. Substitute from the "Also" list when your research disagrees with the model's top pick
-5. Never include picks where `data_quality = LOW` and your own research is inconclusive
+**Principles**:
+1. One pick per match — never double up on a fixture
+2. Take the highest-probability pick that passes your odds floor
+3. Research the top 5–10 picks; flag concerns
+4. Substitute from "Also" when research disagrees
+5. Never include `data_quality = LOW` picks where your own research is inconclusive
 
 ### Scenario D: Investigating a Specific Market
 
 ```bash
-# You want to understand Over 2.5 picks this weekend
-footy picks -c HIGH --min-odds 1.32 --market over-under-2.5
-
-# How has Over 2.5 performed historically?
-footy accuracy --market over-under-2.5
-
-# Deep dive on a specific match's O/U reasoning
-footy analyze match "Atletico Madrid vs Valencia"
-# Look at: scoring_frequency factor, scoring_patterns factor, expected_total in rationale
+footy picks -c MEDIUM -o 1.32 -m over-under-2.5   # this weekend's O/U 2.5
+footy accuracy -m over-under-2.5                  # historical performance
+footy analyze match "Atletico Madrid vs Valencia" # the reasoning behind one
+# Look at: scoring_frequency, scoring_patterns, expected_total in the rationale
 ```
 
-### Scenario E: Checking Model Accuracy After a Bad Week
+### Scenario E: Checking Accuracy After a Bad Week
 
 ```bash
-# Record results first
 footy record
-
-# View this week's accuracy
 footy accuracy
-
-# View accuracy broken down by market
-footy accuracy --market 1x2
-footy accuracy --market win-either-half
-footy accuracy --market over-under-2.5
-
-# Check if a specific league is underperforming
-footy accuracy --league premier-league
-
-# Re-calibrate if needed
-footy calibrate
+footy accuracy -m 1x2
+footy accuracy -m win-either-half
+footy accuracy -l premier-league     # is one league dragging?
+footy calibrate                      # if a real drift appears
 ```
 
-If a market consistently underperforms (e.g. WEH hitting <55% at HIGH confidence), stop using it in parlays until the model improves.
+If a market consistently underperforms at a tier, stop using it there until the model improves.
 
 ### Scenario F: No Internet / Offline Mode
 
-The database persists all data locally. If your internet is down:
+All data persists locally in SQLite, so analysis works offline:
 
 ```bash
-# Analysis works offline — all data is in SQLite
-footy report             # uses existing DB data
+footy report             # works offline
 footy picks -c HIGH      # works offline
 footy analyze matchweek  # works offline
+footy accuracy           # works offline
+footy serve              # works offline (local web UI)
 
-# Only fetching requires internet
-# footy fetch-upcoming   # needs internet
+# Only these need internet:
+# footy fetch / fetch-upcoming / load-history
 ```
-
-This is the beauty of the local-first approach. Once data is fetched, you can analyse anywhere.
 
 ### Scenario G: Resetting and Starting Fresh
 
 ```bash
-# WARNING: This deletes your entire database. Only do this intentionally.
+# Back up first — always.
+cp footy.db footy.db.backup-$(date +%Y%m%d-%H%M%S)
+
+# WARNING: deletes your entire database and all recorded accuracy history.
 rm footy.db
-footy load-history      # re-import historical CSVs
-footy fetch-upcoming    # re-fetch current data
+footy load-history --seasons 5
+python migrations/run.py
+footy fetch-upcoming
 ```
+
+> [!CAUTION]
+> Deleting `footy.db` destroys your recorded results and accuracy history, which is the only thing calibration can learn from. Back it up first. Backups matching `footy.db.backup-*` are gitignored.
 
 ### Scenario H: The Model Seems Wrong on a Match
 
-The model is evidence-based, not omniscient. When you think it's wrong:
+1. `footy analyze match "Team A vs Team B"` — read every factor
+2. Check what it knows: is H2H available? Is form recent enough?
+3. Check `data_quality` — LOW means it's guessing more than knowing
+4. Apply your own knowledge: injuries, managerial change, cup hangover
+5. Override if you have specific, recent information it doesn't
 
-1. Run `footy analyze match "Team A vs Team B"` — read every factor
-2. Check what the model knows: is head-to-head data available? Is form recent enough?
-3. Check `data_quality` — LOW quality means the model is guessing more than knowing
-4. Apply your own knowledge: recent injury news, managerial change, cup hangover, etc.
-5. Override the model's pick with your own research if you have specific, recent information it doesn't
-
-**The model will be wrong more on**:
-- Early season (insufficient current form)
-- Teams with recent manager changes (new manager bounce not modelled)
-- Matches with key injuries (not yet integrated)
-- Derbies (high volatility, model flags but can't fully quantify)
+**The model will be wrong more often on**: early season, teams with recent manager changes, matches with key injuries, and derbies.
 
 ---
 
@@ -704,54 +861,48 @@ The model is evidence-based, not omniscient. When you think it's wrong:
 
 | Tier | Probability | Historical Hit Rate | When to Use |
 |---|---|---|---|
-| HIGH | ≥ 0.80 | **79.9%** | Primary parlay picks |
-| MEDIUM | 0.60–0.80 | **62.7%** | Secondary picks, fill legs when HIGH count is low |
-| LOW | < 0.60 | ~35% | Informational only. Do not include in parlays. |
+| HIGH | ≥ 0.80 | **80.3%** | Primary parlay picks |
+| MEDIUM | 0.60–0.80 | **67.0%** | The real value zone for accumulators |
+| LOW | < 0.60 | ~35% | Informational only. Never in parlays. |
 
 ### Implied Odds vs Real Odds
 
-The system shows **model implied odds** = 1 / P(model). These are NOT SportyBet's offered odds.
+The system shows **model implied odds** = `1 / P(model)`. These are NOT SportyBet's offered odds.
 
 | Model implied odds | Estimated real SportyBet odds | Should include? |
 |---|---|---|
 | 1.04 | ~0.94 | No — below 1.00, value is negative |
 | 1.13 | ~1.02 | Borderline — marginal value |
 | 1.32 | ~1.19 | At the minimum (default floor) |
-| 1.40 | ~1.26 | Good value for HIGH picks |
+| 1.40 | ~1.26 | Good value |
 | 1.60 | ~1.44 | Strong value |
 | 2.00 | ~1.80 | High value, higher risk |
 
-The 0.90 multiplier is an approximation of the bookmaker's average margin. It varies by market. For O/U and DNB markets, SportyBet's margin is typically 8-12%. For 1X2 markets, it can be 10-15%.
+The 0.90 multiplier approximates bookmaker margin. It varies: 8–12% for O/U and DNB, 10–15% for 1X2.
 
 ### The Value Zone
 
-A pick is in the **value zone** when:
-- Confidence = HIGH or MEDIUM (depending on your threshold), AND
-- Model implied odds ≥ 1.32 (default, configurable)
-
-Value zone picks are what you should base your parlay on.
+A pick is in the **value zone** when confidence meets your threshold AND model implied odds ≥ 1.32 (configurable).
 
 ### Data Quality
 
 | Quality | Meaning | What to do |
 |---|---|---|
 | HIGH | 10+ matches of season data, full factor coverage | Trust the model |
-| MEDIUM | 5-10 matches, most factors populated | Trust but verify |
-| LOW | <5 matches or major data gaps | Add your own research before including |
+| MEDIUM | 5–10 matches, most factors populated | Trust but verify |
+| LOW | <5 matches or major data gaps | Add your own research first |
 
 ### The Brier Score
 
-The Brier score measures **calibration** — how close the stated probabilities are to actual hit rates. Lower is better.
+Measures **calibration** — how close stated probabilities are to actual hit rates. Lower is better.
 
 - Random (no information): **0.25**
-- Current model: **0.2064** (significantly better than random)
+- Current model: **0.2037**
 - Perfect calibration: **0.00**
 
-A Brier score of 0.2064 means the model's stated probabilities are meaningfully useful — when it says 80%, outcomes happen roughly 80% of the time (not 50% or 95%).
+At 0.2037, when the model says 80% outcomes happen roughly 80% of the time — not 50%, not 95%.
 
 ### Risk Flags
-
-The model surfaces these flags automatically:
 
 | Flag | What It Means |
 |---|---|
@@ -759,7 +910,7 @@ The model surfaces these flags automatically:
 | Fixture congestion | One or both teams played within 3 days |
 | Low data quality | Insufficient matches for confident analysis |
 | High draw probability | P(draw) > 28% — affects DNB and 1X2 reliability |
-| Form volatility | Team's results highly inconsistent in last 10 matches |
+| Form volatility | Results highly inconsistent over last 10 matches |
 
 ---
 
@@ -767,232 +918,386 @@ The model surfaces these flags automatically:
 
 ### What the Model Does Not Know
 
-| Gap | Impact | Workaround | Fix (Phase) |
+| Gap | Impact | Workaround | Fix |
 |---|---|---|---|
-| **xG data** | `xg_quality` factor is blank — shot quality ignored | Check recent match stats manually | Fills automatically in Aug when season starts |
-| **Injury reports** | Key player absences not modelled | Check injury news before including a pick | Phase E |
-| **Confirmed lineups** | No lineup data pre-match | Check lineups 1h before KO via app/site | Phase E |
-| **Manager changes** | New manager bounce not detected | Flag new managers manually, be cautious | Phase E |
-| **Bookmaker odds comparison** | Cannot measure true edge — model says 80%, but does SportyBet price it at 75% or 60%? | Use the 0.90 adjustment as proxy | Phase E |
-| **League context after week 6** | First 6 weeks use historical data, not current season form | Use higher odds threshold early | Auto-improves as season progresses |
+| **xG data** | `xg_quality` blank — shot quality ignored | Check match stats manually | Needs `api_football_id` backfill — see Section 10 |
+| **Injury reports** | Key absences not modelled | Check injury news before including a pick | Phase E |
+| **Confirmed lineups** | No lineup data pre-match | Check lineups 1h before KO | Phase E |
+| **Manager changes** | New-manager bounce not detected | Flag manually, be cautious | Phase E |
+| **Bookmaker odds** | Cannot measure true edge | Use the 0.90 adjustment as proxy | Phase D/E |
+| **Standings depth** | `league_position` and `opponent_strength` at ~65% | Fetch standings through the season | Improves with use |
+| **Early-season form** | Weeks 1–6 lean on historical data | Use higher odds threshold early | Auto-improves |
 
 ### Known Calibration Issues (Still Overconfident)
 
-Even after two calibration rounds, some markets remain overconfident at the HIGH tier:
+Some markets remain overconfident at the HIGH tier:
 
 | Market | HIGH hit rate | Stated avg | Gap | Verdict |
 |---|---|---|---|---|
-| `over-under-0.5` | 99.3% | 96.3% | -3pp | ✓ Well calibrated |
+| `over-under-0.5` | 99.3% | 96.3% | −3pp | ✓ Well calibrated |
 | `double-chance` | 80.0% | 88.7% | +9pp | Usable but short odds |
 | `win-either-half` | ~65%* | ~82% | ~17pp | **Avoid at HIGH tier** |
 | `team-over-under-1.5` | ~68%* | ~89% | ~21pp | **Use at MEDIUM only** |
 | `over-under-2.5` | ~62%* | ~89% | ~27pp | **Use at MEDIUM only** |
 | `win-to-nil` (Yes) | 78.4% | 94.3% | +16pp | **Avoid WtN Yes at HIGH** |
-| `draw-no-bet` HIGH | now re-tiered to MEDIUM | — | ✓ Fixed | MEDIUM DNB = 76.2% ✓ |
+| `draw-no-bet` | re-tiered to MEDIUM | — | ✓ Fixed | MEDIUM DNB = 76.2% ✓ |
+| `first-half-over-under-*` | Untested | — | — | Build history before HIGH |
+| `second-half-over-under-*` | Untested | — | — | Expect SH Over 0.5 solid |
+| `home/away-team-*-half-over-under` | Untested | — | — | MEDIUM + odds check initially |
+
+\* Pre-calibration-round-2 figures; exact post-round figures need a season of real data.
 
 > [!CAUTION]
-> **Do not include HIGH-tier picks from `win-either-half`, `team-over-under-1.5`, or `over-under-2.5` in your parlay.** The stated probability of 89%+ is false. Actual hit rate is 62-68%. These markets should only be included at MEDIUM confidence (where the stated 60-75% is much closer to reality).
-
-*These numbers are pre-calibration-round-2; exact post-round-2 figures will be measured after a season of real data.
+> **Do not include HIGH-tier picks from `win-either-half`, `team-over-under-1.5`, or `over-under-2.5`.** The stated 89%+ is false; actual is 62–68%. Use these at MEDIUM, where stated 60–75% is much closer to reality.
 
 ### The Main Limitation: No Real Odds Comparison
 
-The most significant limitation is that the system cannot currently tell you whether a pick is **genuinely good value** vs SportyBet's pricing. It can tell you the model probability is 80% — but if SportyBet has priced it at 80% too (implied by their odds), there is no edge.
+The system cannot yet tell you whether a pick is **genuinely good value** against SportyBet's pricing. It can say the model probability is 80% — but if SportyBet has priced it at 80% too, there is no edge.
 
-True edge detection requires comparing our P(model) against SportyBet's P(implied by odds). That is Phase E work (bookmaker odds integration). Until then, assume our model's picks are slightly better than market because of the 80% hit rate observed historically — but do not assume every pick is mispriced.
+True edge detection requires comparing `P(model)` against `P(implied by SportyBet odds)`. That is Phase D work (bookmaker odds integration), currently deferred. Until then, treat the observed tier hit rates as evidence the picks are sound, but do not assume every pick is mispriced in your favour.
 
 ---
 
-## 10. Season Readiness — Is the App Ready?
+## 10. Data Integrity — What Was Fixed and What to Watch
+
+August 2026 brought a round of data-integrity work. This section records what changed, because some of it alters how you should read older reports.
+
+### Fixed: team identity fragmentation
+
+Team names arrived differently from each source ("Inter" vs "Internazionale", accented vs folded spellings), so the same club existed as several rows and its match history was split across them. Identity now resolves on a **canonical key** (Unicode NFKD normalisation plus accent folding) with an alias list. Arsenal, for one, went from a split record to a single row with 342 matches.
+
+### Fixed: 11,609 duplicate match rows
+
+`upsert_match` originally deduplicated on `ON CONFLICT(api_football_id)`. That column is nullable, and SQLite treats every `NULL` as distinct — so for CSV and football-data.org rows, which have no `api_football_id`, the conflict clause never fired and every re-fetch inserted a fresh duplicate. Running `load-history` repeatedly silently multiplied the database.
+
+Identity is now `(league_id, season, home_team_id, away_team_id, date(date))`, enforced by a unique index, and 11,609 existing duplicates were collapsed. A stale `SCHEDULED` re-fetch can no longer un-finish a match whose result is already recorded, and the CSV loader's midnight timestamp no longer clobbers a real kickoff time.
+
+> [!NOTE]
+> If you ran `load-history` several times before August 2026, your accuracy history was computed over inflated data. The current baseline (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037) is the first measured on the deduplicated database.
+
+### Fixed: `--seasons` anchoring in pre-season
+
+`footy load-history --seasons 1` used to resolve "current season" from the calendar, so in August it asked for a season that had not been played and loaded an empty CSV. It now anchors to the **last season actually played** — European leagues step back before month 9, calendar leagues before March.
+
+### Watch: `xg_quality` is blocked, not pending
+
+This is the one gap worth understanding in full, because the previous guide described it incorrectly.
+
+`footy fetch --stats` calls `fetch_and_store_match_stats`, which skips any match without an `api_football_id`. Meanwhile `footy fetch` **prefers football-data.org** for the seven leagues that have an FDO code — Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga Portugal, Eredivisie — to conserve API-Football quota. FDO responses don't carry an `api_football_id`, and neither do CSV loads.
+
+The result: roughly 17,500 finished matches in those seven leagues are structurally unreachable by `--stats`. Only 44 rows in the whole database have `expected_goals`. The fetcher itself works correctly — verified at 10/10 fixtures for Saudi Pro League, populating xG, possession and passes.
+
+Two ways out:
+
+1. **Backfill the ids.** Run plain `footy fetch -l <league>` (no `--stats`) once per FDO league. `upsert_match` carries `api_football_id=COALESCE(matches.api_football_id, excluded.api_football_id)`, so an API-Football pass fills the missing ids in place without disturbing existing data. `--stats` can then reach those rows.
+2. **Let it resolve forward.** Fixtures fetched from 2026/27 onward arrive with an `api_football_id` already attached, so new matches accumulate xG naturally.
+
+Either path is bounded by the free tier — 100 requests/day, 10/minute. A full historical backfill is a multi-day project; the pragmatic choice is option 2 plus option 1 for whichever two or three leagues you bet most.
+
+### Watch: Eliteserien history is shallow
+
+Eliteserien's CSV source (`N0`) returns **300 Multiple Choices** for 2022–2025 and **404** for 2026, so `load-history` cannot fill it. It was backfilled via API-Football to three seasons (2022, 2023, 2024 — 726 matches, all with `api_football_id`).
+
+2025 and 2026 are **blocked by the API-Football free tier**, which rejects those seasons with "Free plans do not have access." Worth knowing: on that rejection the client silently falls back to season 2024, so a backfill attempt reports success while actually re-writing data you already had. Verify with date ranges, not row counts:
+
+```bash
+sqlite3 footy.db "SELECT season, COUNT(*), MIN(date(date)), MAX(date(date)) \
+  FROM matches WHERE league_id=(SELECT id FROM leagues WHERE slug='eliteserien') \
+  GROUP BY season ORDER BY season"
+```
+
+Treat Eliteserien picks with more caution than the big-five leagues — three seasons is thin for H2H and venue factors.
+
+### Watch: Saudi Pro League has one season
+
+No CSV source exists, so it holds only the 306 matches fetched via API. Its form and H2H factors are correspondingly weak.
+
+### Current database state
+
+| Metric | Value |
+|---|---|
+| Matches | 21,935 (19,484 finished) |
+| Teams | 325 |
+| Leagues | 12 |
+| `match_stats` rows | 35,822 |
+| — with `expected_goals` | **44** |
+| — with `possession` | 100 |
+| Standings rows | 338 |
+| Team-season stats | 86 |
+| Settled predictions | 13,408 |
+| Tests | 194 passing |
+
+---
+
+## 11. Season Readiness — Is the App Ready?
 
 ### Short Answer
 
-**Yes — analytically ready for the 2026/27 season.** The system can generate meaningful picks from day one.
+**Yes — analytically ready for the 2026/27 season.** It can generate meaningful picks from day one.
 
 ### What "Ready" Means
 
-✅ **The analysis engine is fully functional** — all 16 factors work, all 11 markets are modelled.
+✅ **The analysis engine is fully functional** — all 16 factors run, 15 market families modelled (~65 picks per fixture).
 
-✅ **Historical data is loaded** — 3-5 seasons of form, H2H, and patterns are in the database.
+✅ **Historical data is loaded** — 3–9 seasons per league, 19,484 finished matches, on a deduplicated database.
 
-✅ **Calibration is done** — model probabilities are shrunk and adjusted. HIGH tier hits at 79.9%.
+✅ **Calibration is done** — probabilities are shrunk and adjusted. HIGH hits 80.3%, MEDIUM 67.0%, Brier 0.2037.
 
-✅ **CLI workflow is complete** — `footy report` generates a weekly decision-support report in one command.
+✅ **CLI workflow is complete** — `footy report` produces the weekly decision-support document in one command.
 
-✅ **The `footy record` → `footy accuracy` → `footy calibrate` loop works** — the system can self-improve through the season.
+✅ **The `record` → `accuracy` → `calibrate` loop works** — the system can self-improve through the season.
+
+✅ **Data integrity is sound** — team canonicalisation and fixture-identity deduplication are in place, so repeated `load-history` runs no longer inflate the database.
+
+### Known caveats going in
+
+⚠️ **`xg_quality` contributes nothing** until `api_football_id` is backfilled or new-season fixtures accumulate.
+
+⚠️ **`league_position` and `opponent_strength` at ~65% coverage** — fetch standings regularly to improve them.
+
+⚠️ **Eliteserien (3 seasons) and Saudi Pro League (1 season)** are materially thinner than the rest.
+
+⚠️ **No bookmaker odds comparison** — you must still check SportyBet manually to confirm edge.
 
 ### What Will Change During the Season
 
-| When | What happens automatically |
+| When | What happens |
 |---|---|
 | Week 1 (Aug) | First `footy fetch-upcoming` pulls 2026/27 fixtures |
-| Weeks 1-3 | LOW/MEDIUM data quality as teams have no season form |
-| Week 4-6 | Data quality improves as form populates |
-| Week 8+ | `xg_quality` factor starts working (once match stats are stored) |
-| Monthly | Run `footy calibrate` to update factor weights from season data |
-| End of season | Run `footy load-history` to pull the full season CSV |
-
-### What You Need to Do to Get Ready
-
-```bash
-# Do this in early August, before the season starts:
-
-# 1. Pull the just-completed 2025/26 season historical data
-footy load-history --seasons 1    # just the most recent completed season
-
-# 2. Fetch pre-season standings and team data
-footy fetch --league premier-league
-footy fetch --league la-liga
-# ... etc for leagues you care about most (spread over 3 days to conserve quota)
-
-# 3. Run one final calibration on the fresh historical data
-footy calibrate
-
-# 4. Verify
-footy status
-footy report   # should show upcoming pre-season fixtures if any exist
-```
+| Weeks 1–3 | LOW/MEDIUM data quality — no season form yet |
+| Weeks 4–6 | Data quality improves as form populates |
+| Week 8+ | `xg_quality` begins contributing **for newly fetched matches only** |
+| Monthly | `footy calibrate` updates weights from real results |
+| End of season | `footy load-history --seasons 1` pulls the completed season's CSV |
 
 ### Pre-Season Checklist
 
-- [ ] `footy load-history` run for the 2025/26 season
-- [ ] API keys valid and quota available (`footy status`)
-- [ ] `.env` file configured with `VALUE_MIN_ODDS=1.32`
-- [ ] `footy calibrate` run on updated data
-- [ ] Know which leagues to focus on (quota is limited — prioritise 4-6 leagues)
-- [ ] Understand early-season caution (weeks 1-6, use HIGH only, stricter odds floor)
+- [ ] `footy load-history --seasons 1` run (anchors to the completed season automatically)
+- [ ] `python migrations/run.py` run — schema current
+- [ ] API keys valid, quota available (`footy status`)
+- [ ] `.env` configured with `VALUE_MIN_ODDS=1.32`
+- [ ] `footy calibrate` run on the updated data
+- [ ] Database backed up (`cp footy.db footy.db.backup-$(date +%Y%m%d)`)
+- [ ] Priority leagues chosen — quota is limited, so focus on 4–6
+- [ ] Early-season caution understood (weeks 1–6: HIGH only, stricter odds floor)
+- [ ] Optional: `footy fetch -l <league>` for your top 2–3 FDO leagues to start the `api_football_id` backfill
 
 ---
 
-## 11. What to Look Forward To
+## 12. What to Look Forward To
 
 ### Automatic Improvements This Season
 
-**xG quality factor** (from August): Once match statistics start being stored from the 2026/27 season, the `xg_quality` factor activates. This adds shot quality, xG vs actual goals ratio, and xG-against to the model. Expected impact: **+1-2pp accuracy improvement**.
+**Calibration loop**: Every month of recording and calibrating improves factor weights. By December the model is tuned to the current season's characteristics rather than historical averages.
 
-**Calibration loop**: Every month of recording results and calibrating improves factor weights. By December, the model will be tuned to the current season's characteristics, not just historical averages.
+**Standings coverage**: `league_position` and `opponent_strength` climb from ~65% toward full coverage as you fetch standings weekly.
 
-### Planned Development (Phase E — After Season Start)
+**xG (partial)**: New fixtures fetched from API-Football carry `api_football_id`, so `--stats` reaches them. Coverage grows from the season forward, not backward.
 
-| Feature | Impact | Timeline |
+### Planned Development
+
+| Feature | Impact | Phase |
 |---|---|---|
-| **Bookmaker odds integration** | True edge detection — compare our P vs SportyBet's P. Transforms the system from a probability model to a genuine value detector | After season start |
-| **Injury reports** (`/injuries`) | Significant — knowing top scorer is injured changes 1X2, WtN, O/U picks dramatically | Phase E |
-| **Confirmed lineups** | Most impactful single feature. Knowing the actual starting XI changes many picks | Phase E |
-| **Manager change detection** | New manager bounce (+15% uplift for first 5-10 matches) | Phase E |
-| **Referee bias modelling** | Some referees have measurable tendencies (card rates, penalty decisions) | Phase E |
-| **Platt scaling / global calibration** | Sigmoid calibration layer across all markets — should tighten remaining stated/actual gaps | Phase E |
+| **Bookmaker odds integration** | True edge detection — compare our P vs SportyBet's. Turns a probability model into a genuine value detector | Phase D (deferred) |
+| **Injury reports** (`/injuries`) | Knowing the top scorer is out changes 1X2, WtN, O/U dramatically | Phase E |
+| **Confirmed lineups** | Most impactful single feature — the actual starting XI | Phase E |
+| **Manager change detection** | New-manager bounce (+15% uplift for first 5–10 matches) | Phase E |
+| **Referee bias modelling** | `matches.referee` is already stored but unused; some referees have measurable card/penalty tendencies | Phase E |
+| **Platt scaling** | Global sigmoid calibration across markets — should tighten remaining stated/actual gaps | Phase E |
+| **Home/away table splits** | Separate home-only and away-only standings, improving `league_position` signal | Phase E |
 | **Monte Carlo simulation** | Full probability distributions rather than point estimates | Future |
-| **Squad depth index** | Congested fixture resilience based on bench quality | Future |
+| **Squad depth index** | Congested-fixture resilience from bench quality | Future |
 
 ### What the Model Looks Like at Full Power
 
-With Phase E complete, a typical HIGH-confidence pick will be supported by:
-- 16 factors of statistical evidence
-- xG quality correcting for finishing luck
-- Injury-adjusted team strength
-- Confirmed lineup formation
-- Manager stability signal
-- Referee tendency adjustment
-- **Genuine edge confirmation**: model P(80%) > SportyBet implied P(72%) → +8% edge per leg
+With Phase D and E complete, a typical HIGH pick would be supported by 16 factors of statistical evidence, xG correcting for finishing luck, injury-adjusted strength, confirmed lineup, manager stability, referee tendency — and crucially, **genuine edge confirmation**: model P(80%) vs SportyBet implied P(72%) → +8% edge per leg.
 
-At that point, the expected accumulator edge per leg becomes calculable and verifiable.
+At that point the expected accumulator edge per leg becomes calculable and verifiable, rather than inferred.
 
 ---
 
-## 12. How to Win Consistently
+## 13. How to Win — The Complete Strategy
 
-This section is explicit and direct. These are not guarantees — they are the conditions under which the system is designed to provide an advantage.
+Written for the specific goal: 48–50 leg accumulators at combined odds of 8,000–64,000+.
+
+### Understanding the Endgame
+
+The jackpot is not won by finding 50 "sure things." Sure things pay 1.05 — fifty of them produce 1.05^50 ≈ 11.5x, not 64,000x.
+
+It is won by finding **50 highly probable picks at meaningful odds** and having a week where they all land:
+- Average per-leg accuracy: **80–88%** (achievable)
+- Average per-leg real odds: **1.22–1.28** (MEDIUM picks at 1.30–1.40 model odds)
+- Combined: 1.25^50 ≈ **70,000**
+
+At 85% per leg, P(all 50) ≈ 1 in 6,100. The model moves you from gut-feel picking (~70–75% per leg) to systematic picking (~80–85%). That shift alone makes the full jackpot **~100× more likely**.
 
 ### The Non-Negotiables
 
-**1. Record every result, every week.** `footy record` on Monday morning. Without results, the system cannot calibrate, cannot improve, and you cannot measure whether you're actually winning. Skipping this is the single fastest way to undermine the system.
+**1. Record every result, every week.** `footy record` on Monday, without exception. Without results the system cannot calibrate, cannot improve, and you cannot measure whether your process works. This is the single discipline separating a system that improves from one that stagnates.
 
-**2. Only use HIGH picks in your parlay.** MEDIUM picks at 62.7% significantly drag down a long accumulator. The difference between a 50-leg parlay at 80% per leg and at 70% per leg is enormous: 0.80^50 ≈ 0.00014 vs 0.70^50 ≈ 0.0000001. **Stick to HIGH.**
+**2. Use both workflows.** Workflow ii (systematic) is the minimum. Workflow i (manual odds comparison) is the maximum. Time-rich weeks: Workflow i finds better picks. Time-poor weeks: Workflow ii still gets you a slip.
 
-**3. Apply the odds floor.** `--min-odds 1.32` is the default for a reason. Including picks at 1.05 odds adds almost no multiplier and wastes a slot that could have a higher-value pick. If the parlay builder comes up short of 50 legs at 1.32, add legs at 1.25 — not at 1.05.
+**3. Apply the odds check.** Verify SportyBet offers ≥1.20 on every pick you include. This keeps combined odds in the 64,000 range instead of the 150 range. Ten picks at 1.05 instead of 1.25 costs you 1.05^10 vs 1.25^10 = 1.63 vs 9.31 — a 5.7× difference from those ten alone.
 
-**4. Do your own research on the top 5 picks.** The model doesn't know:
-- Injury news from this week
-- That the manager was sacked on Wednesday
-- That it's a must-win for one side (cup final mentality)
-- That one team just played a brutal Europa League away leg Tuesday
-Apply this knowledge. Override picks where you have specific, recent information.
+**4. Apply your knowledge at the margins.** Don't research all 50 — that's the model's job. Research the 5–10 where confidence is MEDIUM rather than HIGH, where there's a risk flag, or where you have recent context the model lacks.
 
-**5. Avoid the overconfident markets at HIGH tier.** Until Phase E calibration is complete, do not include these in your parlay at HIGH confidence:
-- `win-either-half` HIGH
-- `team-over-under-1.5` HIGH
-- `over-under-2.5` HIGH (near-threshold matches)
-- `win-to-nil Yes` HIGH
+**5. Avoid the overconfident markets at HIGH tier.** Not `win-either-half`, not `team-over-under-1.5`, not `over-under-2.5`. Use them at MEDIUM if they pass your odds check.
 
-Use them at MEDIUM or not at all.
+**6. Read tiers, not per-market rates.** A 50% next to a market name in any accuracy output is the both-sides artifact, not a broken model. Judge by tier hit rate and Brier score.
 
-### The Strategy
+### Pick Composition for 64,000+ Combined Odds
 
-For a 50-leg parlay, aim for this composition (approximately):
+For a 50-leg slip at ~1.25 average real odds:
 
-| Picks | Market | Confidence | Why |
-|---|---|---|---|
-| 8-10 | `1x2-1up` / `1x2-2up` | HIGH | 82-87% historical hit rate, ≥1.20 odds |
-| 8-10 | `double-chance` (12 or X2) | HIGH | 80%+ hit rate, decent odds on clear favourites |
-| 8-10 | `over-under-1.5` | HIGH | 83% hit rate, reasonable odds |
-| 6-8 | `away-under-2.5` or `home-under-2.5` | HIGH | 81-86%, odds typically 1.20-1.40 |
-| 6-8 | `dnb` | MEDIUM | 76% at MEDIUM tier, odds usually 1.30-1.60 |
-| 5-7 | `1x2` (home or away win) | HIGH | 72-80% at HIGH, odds usually 1.40-2.00 |
-| 3-5 | `win-either-half` | MEDIUM | 65% at MEDIUM, odds usually 1.30-1.60 |
+| Picks | Market | Confidence | Real odds target | Why |
+|---|---|---|---|---|
+| 8–10 | `1x2` — pick "…1X2 - 1UP" | HIGH or MEDIUM | 1.20–1.35 | 85–87% hit rate, reliable, decent odds |
+| 8–10 | `draw-no-bet` | MEDIUM | 1.30–1.60 | 76% at MEDIUM, better odds than DC |
+| 6–8 | `double-chance` (12 or X2) | HIGH | 1.20–1.30 | 80% — short odds but solid |
+| 6–8 | `over-under-1.5` | HIGH | 1.25–1.40 | 83%, reasonable |
+| 5–7 | `1x2` outright | HIGH or MEDIUM | 1.40–2.00 | Fewer wins but big odds contribution |
+| 5–7 | `team-over-under-2.5` (away under) | HIGH | 1.20–1.35 | 86% |
+| 4–6 | `win-either-half` | **MEDIUM only** | 1.30–1.60 | 65% — include only if research confirms |
+| 2–4 | `1x2` — pick "…1X2 - 2UP" | HIGH | 1.20–1.35 | Safeguard pick, very reliable |
+| 3–5 | `second-half-over-under-0.5` | MEDIUM | 1.25–1.50 | SH has the highest goal frequency |
+| 2–4 | `home-team-second-half-over-under-0.5` | MEDIUM | 1.35–1.80 | Home sides score more in H2 |
+| 2–4 | `away-team-second-half-over-under-0.5` | MEDIUM | 1.40–1.90 | Away teams strong in H2 are a niche edge |
+| 0–3 | `first-half-over-under-0.5` | MEDIUM | 1.30–1.65 | Sparingly until settled history confirms |
 
-Total: 44-52 picks. Adjust based on what the model produces each weekend.
+Total: 51–74 candidates. Adjust to the weekend's fixture list.
 
-### Season-Long Profitability
+> [!TIP]
+> **Half-time markets, first season:** include 2–4 per weekend at MEDIUM + ≥1.30 real odds. Record every result. After 6 weeks, check `footy accuracy -m second-half-over-under` and `-m first-half-over-under` to see whether they're calibrated at MEDIUM. Then scale up or down on evidence.
 
-Profitability in a long accumulator strategy works differently from singles betting. You will have losing weeks — many of them. You will occasionally have one week where the parlay lands and the payout covers weeks of losses. The model's job is to:
+The higher-odds picks (1X2 outrights at 1.50–2.00) push combined odds above 10,000. The reliable ones (1UP, DC, Under 2.5) keep the win rate up. You need both.
 
-1. Make each leg more likely to win (79.9% vs 50% random selection)
-2. Identify the picks with the best odds available
-3. Avoid the markets where the model is overconfident
+### Managing the Odds Floor with Your Discretion
 
-Over a full season (34 weekends), a model that consistently picks at 80% per leg with ≥1.20 real odds will generate positive expected value in the accumulator — provided you are betting the same stake each week and not chasing losses.
+The floor (`-o 1.32` model ≈ 1.19 real) is a starting filter, not a rule:
 
-**Track your record**: Use `footy accuracy` weekly. If HIGH accuracy falls below 70% over a 4-week rolling window, something has changed — investigate before continuing.
+```
+Model confidence HIGH (≥80%)?     →  Check SportyBet odds
+  SportyBet ≥1.20?                →  INCLUDE (even if model odds <1.32)
+  SportyBet <1.20?                →  EXCLUDE unless slip is short on legs
+
+Model confidence MEDIUM (60-80%)?
+  Do you have confirming research? →  Check SportyBet odds
+    SportyBet ≥1.25?              →  INCLUDE
+    SportyBet 1.20-1.25?          →  Only if strongly confident
+    SportyBet <1.20?              →  EXCLUDE
+  No confirming research?          →  EXCLUDE
+
+Model confidence LOW (<60%)?       →  EXCLUDE always
+```
+
+### The Honest Math
+
+At 85% per leg across 50 legs: P(all 50) ≈ 1 in 6,100 · P(48/50) ≈ 1 in 260 · P(45/50) ≈ 1 in 30.
+
+At 80% per leg: P(all 50) ≈ 1 in 59,000 · P(48/50) ≈ 1 in 1,900 · P(45/50) ≈ 1 in 150.
+
+The model's job is keeping you at 80–85% consistently. Yours is applying judgment, selecting meaningful odds, and playing consistently. The jackpot arrives when both align in one week.
+
+### Tracking Your Real-World Performance
+
+```bash
+# Every Monday
+footy record
+footy accuracy
+footy accuracy -m 1x2
+
+# Monthly
+footy calibrate
+```
+
+If your rolling 4-week HIGH accuracy drops below 70%, common causes are: early season (normal for weeks 1–6), a volatile weekend (not the model's fault), a market-specific calibration issue (check `footy accuracy -m <name>`), or systematic overconfidence returning (run `footy calibrate`).
+
+**Track your slip performance separately** from model accuracy. Model accuracy covers all picks it generates; your slip only includes what you chose — and should be higher, because you applied research on top.
+
+### The Ceiling — Being Honest
+
+| What | Realistic ceiling | What gets you there |
+|---|---|---|
+| Model HIGH accuracy (overall) | **83–85%** | Further calibration + xG activation |
+| Model HIGH accuracy (best markets only) | **88–90%** | Full Phase D/E + one season of calibration |
+| Your slip accuracy (with judgment) | **85–90%+** | Consistent use of both workflows |
+| All 50 legs in one week | Very rare, but it happens | Every per-leg accuracy gain makes it ~10× likelier |
+
+The goal is not to guarantee the jackpot. It is to be the player consistently operating at 85–88% per leg, so that when the exceptional week comes, you are positioned to receive it.
 
 ---
 
-## 13. Local-First Operating Model
+## 14. Troubleshooting
+
+### `footy load-history` loaded far more than I asked for
+
+Before August 2026 this was the duplication bug — `--seasons 1` would re-insert every match because the conflict clause never fired on nullable `api_football_id`. Fixed. If your database predates the fix, the counts were inflated; the fix collapsed 11,609 duplicates. Verify:
+
+```bash
+sqlite3 footy.db "SELECT league_id, season, home_team_id, away_team_id, date(date), COUNT(*) c \
+  FROM matches GROUP BY 1,2,3,4,5 HAVING c > 1 LIMIT 5"
+```
+
+An empty result means no duplicates remain.
+
+### `footy load-history --seasons 1` loaded nothing
+
+In pre-season this used to request an unplayed season and get an empty CSV. Fixed by anchoring to the last season actually played. If a specific league still returns nothing, its CSV may genuinely be unavailable — Eliteserien returns 300/404 (see Section 10).
+
+### `footy fetch --stats` says "All FINISHED matches already have stats"
+
+The `match_stats` rows exist but without xG, because the CSV loader creates stat rows from the results it has. `--stats` targets matches with *no* stats row at all, so it considers them done. This is the same root issue as the xG gap — see Section 10.
+
+### `footy fetch` returns "Free plans do not have access"
+
+API-Football's free tier restricts certain seasons. The client falls back to season 2024 automatically — which means **the operation can report success while fetching a season you already had**. Always verify by date range, not row count.
+
+### Migrations show as pending but the columns already exist
+
+A partly-applied migration can leave the schema correct while the tracking row is missing. `python migrations/run.py` is idempotent and backfills tracking rows with `INSERT OR IGNORE`. Re-running is safe.
+
+### Rate limit errors during `--stats`
+
+API-Football allows 10 requests/minute. The client enforces this, so a large `--stats-limit` simply takes time (60 matches ≈ 6 minutes). Use a smaller limit and spread across days.
+
+### The accuracy dashboard shows ~50% for every market
+
+Expected. The engine stores both sides of every binary market, so per-market rates converge on 50%. Read the confidence-tier breakdown and Brier score instead — see [Section 2](#the-market-layer).
+
+### `footy report` returns no picks
+
+Usually the odds floor. Try `footy report -o 1.20` or `footy report -c MEDIUM -o 0`. If still empty, there may be no upcoming fixtures in the window — check with `footy status` and widen with `-d 14`.
+
+---
+
+## 15. Local-First Operating Model
 
 ### Why Local-First Makes Sense Now
 
-Hosting a production application costs money and introduces operational complexity. More importantly, hosting is only justified when the application has proven profitable — you wouldn't pay for a factory before it produces anything valuable.
+Hosting costs money and adds operational complexity, and it is only justified once the application has proven profitable. You wouldn't pay for a factory before it produces anything.
 
-The local-first model means:
-- Zero ongoing cost
-- Full control over data and API keys
-- No downtime risk from a cloud provider
-- Easy to pause and resume
-- The database lives on your machine; you own your data
+Local-first means zero ongoing cost, full control over data and keys, no cloud downtime risk, easy pause and resume, and a database you own on your own machine.
 
 ### What You're Giving Up (And Why It Doesn't Matter Yet)
 
 | Cloud feature | What you're missing | Does it matter now? |
 |---|---|---|
-| Scheduled cron fetches | Data not auto-updated — you fetch manually | No — fetching takes 30 seconds once a week |
-| Web UI on your phone | No browser interface unless running locally | No — the CLI report is sufficient |
-| Always-on server | Analysis only runs when your laptop is open | No — you only need it Thursday-Saturday |
-| Telegram bot | No push notifications | No — you check the report once |
+| Scheduled cron fetches | Data not auto-updated — you fetch manually | No — fetching takes 30 seconds weekly |
+| Web UI on your phone | No remote browser interface | Partly — `footy serve` covers your LAN |
+| Always-on server | Analysis runs only when your machine is on | No — you need it Thursday–Saturday |
+| Telegram push | No notifications unless the bot runs | No — you read the report once |
 
 ### When to Move to Hosting
 
-Consider hosting when **all three are true**:
+Consider it when **all three** hold:
 
-1. **Profitable**: You've tracked at least 10 weekends and the model has demonstrably improved your parlay win rate vs your baseline before using the system.
+1. **Profitable** — you've tracked 10+ weekends and the model demonstrably improved your win rate versus your pre-system baseline.
+2. **Reliable** — HIGH accuracy has held ≥75% across 8+ weeks of *real-season* data, not just historical simulation.
+3. **Inconvenient locally** — the manual weekly routine is creating enough friction that you're missing fixtures.
 
-2. **Reliable**: The model's HIGH accuracy has been consistently ≥75% over at least 8 weeks of real-season data (not just the historical simulation).
-
-3. **Inconvenient locally**: The manual weekly fetch and report is creating friction that's causing you to miss fixtures.
-
-At that point, the Railway.toml and Procfile are already in the repository. Deployment is:
+`railway.toml` and `Procfile` are already in the repository:
 
 ```bash
-# Install Railway CLI
 npm install -g @railway/cli
 railway login
 railway up
@@ -1000,10 +1305,10 @@ railway up
 
 ### The Local Workflow Is the Production Workflow
 
-The CLI is not a development tool — it is the final product. `footy report` is designed to be run weekly and consumed as a decision-support document. The local database accumulates a full season of data. The calibration loop improves the model. Everything works exactly as intended, offline, on your laptop, with zero cost.
+The CLI is not a development tool — it is the final product. `footy report` is meant to be run weekly and read as a decision-support document. The local database accumulates a season of data, the calibration loop improves the model, and everything works offline, on your machine, at zero cost.
 
 ---
 
-*Guide version: July 2026 · Footy Predict v1.0*
-*134 tests passing · HIGH: 79.9% · MEDIUM: 62.7% · Brier: 0.2064*
-*Supported leagues: 12 · Markets: 11 · Factors: 16*
+*Guide version: August 2026 · Footy Predict v1.0*
+*194 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
+*12 leagues · 15 market families · 16 factors · 21,935 matches (19,484 finished) · 325 teams*
