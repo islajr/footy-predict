@@ -405,6 +405,32 @@ class CSVLoader:
         )
         return total
 
+    def _newest_playable_season(self, league: LeagueConfig) -> int:
+        """The most recent season likely to hold completed matches.
+
+        ``get_current_season`` returns the season now in progress, which in a
+        pre-season window has been played zero times. Asking for one season of
+        history in early August therefore loaded an empty CSV and left the
+        league with no history at all — the state Serie A, Ligue 1 and
+        Eredivisie were found in.
+
+        Step back one season while the current one has not plausibly started.
+        Both European and calendar leagues need roughly a month of fixtures
+        before a season's data is worth anything.
+        """
+        current = league.get_current_season()
+        now = datetime.now()
+
+        if league.season_format == "calendar":
+            # Calendar seasons run Mar–Nov; before March there is nothing yet.
+            started = now.month >= 3
+        else:
+            # European seasons open in August; September is the first month
+            # with a few matchweeks banked.
+            started = now.month >= 9 or now.month <= 5
+
+        return current if started else current - 1
+
     def load_all_leagues_history(
         self,
         start_season: int = 2018,
@@ -419,10 +445,10 @@ class CSVLoader:
                 ``seasons`` is given.
             end_season: Last season start year to load.
             seasons: Number of most-recent seasons to load. Resolved per
-                league against that league's own current season, since
+                league against that league's own newest *played* season, since
                 calendar-year leagues (e.g. Eliteserien) are offset from
-                European Aug–May leagues. Takes precedence over
-                ``start_season``.
+                European Aug–May leagues and a season in progress may hold no
+                completed matches yet.
 
         Returns:
             Dict mapping league slug → total matches loaded.
@@ -434,7 +460,15 @@ class CSVLoader:
                 logger.info("Skipping %s — no CSV data available", slug)
                 continue
 
-            league_end = end_season if end_season is not None else league.get_current_season()
+            if end_season is not None:
+                league_end = end_season
+            elif seasons is not None:
+                # Anchor a "last N seasons" request to real data, not to a
+                # season that has not kicked off.
+                league_end = self._newest_playable_season(league)
+            else:
+                league_end = league.get_current_season()
+
             league_start = (
                 league_end - seasons + 1 if seasons is not None else start_season
             )
