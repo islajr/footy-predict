@@ -19,7 +19,7 @@
 9. [Current Shortcomings — Honest Assessment](#9-current-shortcomings--honest-assessment)
 10. [Data Integrity — What Was Fixed and What to Watch](#10-data-integrity--what-was-fixed-and-what-to-watch)
 11. [Season Readiness — Is the App Ready?](#11-season-readiness--is-the-app-ready)
-12. [What to Look Forward To](#12-what-to-look-forward-to)
+12. [Where to Go From Here — Impact vs Effort Analysis](#12-where-to-go-from-here--impact-vs-effort-analysis)
 13. [How to Win — The Complete Strategy](#13-how-to-win--the-complete-strategy)
 14. [Troubleshooting](#14-troubleshooting)
 15. [Local-First Operating Model](#15-local-first-operating-model)
@@ -1084,35 +1084,180 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 
 ---
 
-## 12. What to Look Forward To
+## 12. Where to Go From Here — Impact vs Effort Analysis
 
-### Automatic Improvements This Season
+This section answers: what's missing, what to fix next, and which improvements give you the most return for the least work.
 
-**Calibration loop**: Every month of recording and calibrating improves factor weights. By December the model is tuned to the current season's characteristics rather than historical averages.
+### What the App Is Now (August 2026)
 
-**Standings coverage**: `league_position` and `opponent_strength` climb from ~65% toward full coverage as you fetch standings weekly.
+**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 194 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
 
-**xG (partial)**: New fixtures fetched from API-Football carry `api_football_id`, so `--stats` reaches them. Coverage grows from the season forward, not backward.
+**Data-integrity sound.** Team canonicalisation (325 clubs, no fragmentation), 11,609 duplicates removed, fixture-identity unique index, `--seasons` anchoring fixed. Repeated `load-history` runs no longer inflate the database.
 
-### Planned Development
+**Calibration functional.** Probability shrinkage tuned (1X2 30%, Poisson λ 25%, Dixon-Coles correction), DNB formula fixed, WEH capped at 0.82. The system self-improves through `record` → `accuracy` → `calibrate`.
 
-| Feature | Impact | Phase |
+**Missing three things that matter:**
+
+1. **Bookmaker odds** — can't measure true edge yet
+2. **Derived standings** — 46 league-seasons at 0% instead of 100%, solvable at zero API cost
+3. **xG activation** — blocked by missing `api_football_id` on 17,561 historical rows
+
+Everything else on the "Phase E roadmap" is either dead code (events/predictions endpoints exist, never called), marginal gains (referee bias would help 6,692/19,484 matches — 34% — but only for the 55 refs with 30+ matches), or genuinely future work (injuries/lineups require live pre-match data the free tier may not provide).
+
+---
+
+### The Three Gaps That Matter — Ranked by Impact
+
+#### 1. **Bookmaker Odds Integration** — Turns "Probably Good" Into "Provably Mispriced"
+
+**What it is:** Fetch SportyBet's offered odds for upcoming fixtures and compare them against your model probabilities. Flag picks where `P(model)` significantly exceeds `P(implied by SportyBet odds)`.
+
+**Why it matters:** The model currently says "this pick is 75% likely" — but if SportyBet has also priced it at 75%, there's no edge. True value detection requires knowing where SportyBet is wrong. This is the ONE thing that makes the difference between "statistically sound picks" and "picks with a measurable edge."
+
+**What it buys you:**
+- Confidence that you're not just picking probable outcomes, but **mispriced** ones
+- Ability to rank picks by edge magnitude, not just probability
+- Proof of whether the system is genuinely profitable before committing to it long-term
+
+**Implementation cost:**
+- **Data source:** SportyBet has no public odds API. Three paths:
+  1. Manual: Open SportyBet, copy odds for your shortlist (10-15 minutes/week) — zero dev cost, works immediately
+  2. Browser automation: Playwright script scrapes the fixture list (2-3 days dev, legal grey area, breaks when their HTML changes)
+  3. Paid odds API: Rapid API "Odds API" or similar (~$30/month for 100 fixtures/week) — 1 day integration
+- **Schema:** Add `bookmaker_odds` table with `(fixture_id, market, pick, offered_odds, fetched_at, source)`. Add `edge` column to `predictions` or compute on the fly.
+- **CLI:** `footy report --show-edge` — filters to picks where `1/offered_odds < P(model) - threshold`.
+
+**Recommendation:** Start with **manual** (zero cost, teaches you what edge looks like) for 4-6 weeks. If the model consistently finds 3-5% edge and you're committing to this, pay for the API. Skip the scraper — too brittle.
+
+**Honest ceiling:** Even with edge detection, bookmaker margin (10-15%) and the law of large numbers mean consistent profitability requires either (a) very large bet volume with small edges compounding, or (b) selective high-edge weeks. This feature tells you which weeks are which.
+
+---
+
+#### 2. **Derived Standings** — 65% → 100% Coverage at Zero API Cost
+
+**What it is:** Compute league tables from match results already in the database, rather than fetching them from API-Football.
+
+**Why it matters:** `league_position` and `opponent_strength` currently sit at 64-67% coverage because standings only exist for the 12 league-seasons you manually fetched. The other 46 league-seasons have complete match results but no table. This weakens two factors on 35% of your fixtures.
+
+**What it buys you:**
+- `league_position` and `opponent_strength` at **100% coverage** for every completed league-season
+- Eliminates one "data quality: MEDIUM" cause
+- Zero API cost — all inputs already in the database
+
+**Implementation cost:**
+- **Schema:** Standings table already exists with the right columns (played, won, drawn, lost, GF, GA, GD, points, home/away splits).
+- **Function:** `compute_standings(league_id, season)` — query all FINISHED matches, group by team, sum W/D/L and goals, rank by points then GD. ~80 lines.
+- **CLI:** `footy derive-standings` — runs for all league-seasons missing standings rows. Idempotent.
+- **Time:** 1 day dev + test.
+
+**Caveat:** Derived tables lack the `form` string (last 5 results as "WWDLW") because API-Football computes that chronologically mid-season. You can derive it too by sorting matches by date — adds 20 lines but rarely changes a pick (form is also in `momentum` and `recent_form` factors).
+
+**Recommendation:** Implement this **immediately**. Highest ROI fix in the codebase — one day of work removes a 35% data gap at zero runtime cost forever.
+
+---
+
+#### 3. **xG Activation** — 0% → ~10% Coverage, or Accept the Gap
+
+**What it is:** Backfill `api_football_id` for historical matches so `footy fetch --stats` can reach them and populate `match_stats.expected_goals`.
+
+**Why it matters:** `xg_quality` is one of 16 factors and currently contributes zero. xG corrects for finishing luck — a team that creates 2.1 xG but scores 0 is stronger than their result suggests. It matters most for predicting goals-based markets (O/U, BTTS, team O/U, WtN).
+
+**What it buys you:**
+- The `xg_quality` factor activates, improving calibration for goals-based markets
+- More confident MEDIUM picks in O/U and team O/U
+- Possibly tightens the remaining overconfidence in `team-over-under-1.5` and `over-under-2.5` at HIGH
+
+**What it costs:**
+- **Backfill scope (last 3 seasons, highest value):** 9,375 matches missing `api_football_id`
+- **API cost to fetch ids:** ~29-58 calls (1-2 per league-season) — 1 day of quota
+- **API cost to fetch xG:** 9,375 calls at 1/match = **94 days** at 100/day with rate limit (10/min) enforcement
+- **Pragmatic alternative:** Let it resolve forward. Fixtures fetched from 2026/27 onward arrive with `api_football_id` attached, so xG accumulates naturally for new matches. By December you'll have 300-400 matches with xG. By May, 1,500+.
+
+**Recommendation:** **Accept the gap for now.** 94 days of quota is prohibitive, and the gain is incremental — 15 of 16 factors already work, and xG's contribution to the aggregate score is weighted at 1% (see `FACTOR_WEIGHTS` in `config.py`). Track one thing through the season: does `footy accuracy -m over-under-2.5` improve as new-season matches with xG accumulate? If yes, xG is helping. If accuracy stays flat, the factor may be less impactful than expected.
+
+**Alternative (for the impatient):** Backfill your **top 2-3 most-bet leagues** only. E.g., Premier League + La Liga + Bundesliga 2024-25 ≈ 1,066 matches ≈ 11 days of quota. Costs you two weeks but activates xG for the fixtures you care about most.
+
+**Reality check:** `xg_quality` is weighted at **1.0%** of the aggregate score (see `FACTOR_WEIGHTS` in `config.py`). Even if xG doubled its contribution, the per-pick impact is ~0.5-1pp probability shift. For comparison, `recent_form` is 15.5%, `home_form` and `away_form` are 13% each. The 15 working factors already produce 80.3% HIGH accuracy. xG is a nice-to-have, not a prerequisite.
+
+---
+
+### Everything Else — Why It's Not on the List
+
+| Feature | Why it's skipped or deferred |
+|---|---|
+| **Fixture events (minute-level goals/cards)** | Endpoint exists (`get_fixture_events`) but is **never called** — dead code. Would fix 1UP/2UP settlement ambiguity (26% of matches are unresolvable with HT data alone) and enable "team scores in final 15 min" features. Cost: 1 call/match (same as `--stats`). Deferrable because 1UP already measures 88.5% at HIGH with the approximation. |
+| **Injury reports (`/injuries`)** | High impact when a key player is out, but requires **live pre-match data** the free tier may not provide. Cost: 1 call/fixture, pre-match. Manually checking team news (5 min/week) covers this until you're profitable enough to justify an always-on fetch. |
+| **Confirmed lineups (`/fixtures/lineups`)** | Highest-impact Tier 2 feature — the actual starting XI changes everything. But it's **time-sensitive** (available 60 min pre-KO) and the free tier may block it. Manual check on SportyBet (formations are often shown) works until automation justifies itself. |
+| **Referee bias modelling** | `matches.referee` is 34% populated (6,692/19,484), with 55 referees appearing 30+ times. Could model card frequency, penalty tendency. Marginal gain — only affects a minority of picks and requires per-ref calibration. Low priority until the three gaps above are closed. |
+| **API-Football `/predictions` endpoint** | Exists, never called. Returns their own model's probabilities. Could be used as an **ensemble member** (blend your 16-factor output with theirs) or a baseline comparison. Cost: 1 call/fixture. Worth investigating once you have 6 months of your own accuracy data to compare against. |
+| **Manager change detection** | New-manager bounce is real (+15-20% win rate uplift for first 5-10 matches), but requires tracking managerial appointments. No endpoint for this. Needs a manual list or external scrape. Low frequency (2-3 per league per season) makes manual flagging viable. |
+| **Platt scaling (global sigmoid calibration)** | Fits a sigmoid over stated probabilities to tighten calibration gaps. Useful when your HIGH picks hit 75% but state 83%. Your current gaps (HIGH 80.3% stated ~82% avg) are already tight. Revisit after one full season if systematic over/underconfidence emerges. |
+
+---
+
+### Decision Framework: What to Build Next
+
+Use this to decide:
+
+#### **Priority 1 (Do This Week):**
+
+✅ **Derive standings** — 1 day dev, zero cost, fixes 35% data gap permanently.
+
+#### **Priority 2 (Do Before First Real Slip):**
+
+✅ **Manual bookmaker odds comparison** — 10 minutes/week, teaches you what edge looks like. Build a simple spreadsheet: model probability, SportyBet odds, implied probability, edge. After 4-6 weeks you'll know whether the model finds consistent edge.
+
+#### **Priority 3 (Do First Month):**
+
+⚠️ **Calibrate after week 4** — run `footy calibrate` once you have 50+ new-season results. Early-season weights may drift from historical.
+
+⚠️ **Track half-time market accuracy** — the six new H1/H2 markets are **untested in simulation**. `footy accuracy -m first-half-over-under` and `-m second-half-over-under` after 6 weeks tells you whether to scale them up or drop them.
+
+#### **Priority 4 (Do If Profitable After 10 Weeks):**
+
+🔄 **Paid odds API** — if manual edge-checking is consistently finding 3-5% edge and you're committing long-term, automate it. Rapid API "Odds API" ~$30/month.
+
+🔄 **xG backfill for top 3 leagues** — if `over-under-2.5` and `team-over-under` accuracy is dragging and you have 11 spare days of quota, backfill Premier League + La Liga + Bundesliga 2024-25.
+
+#### **Defer Indefinitely:**
+
+❌ **Injury/lineup fetching** — manual check is faster until you're running this at scale.
+
+❌ **Referee bias** — marginal, complex, low frequency.
+
+❌ **Manager change tracking** — 2-3 events/season, manually flaggable.
+
+---
+
+### The Honest Roadmap — 6 Months
+
+| When | What | Why |
 |---|---|---|
-| **Bookmaker odds integration** | True edge detection — compare our P vs SportyBet's. Turns a probability model into a genuine value detector | Phase D (deferred) |
-| **Injury reports** (`/injuries`) | Knowing the top scorer is out changes 1X2, WtN, O/U dramatically | Phase E |
-| **Confirmed lineups** | Most impactful single feature — the actual starting XI | Phase E |
-| **Manager change detection** | New-manager bounce (+15% uplift for first 5–10 matches) | Phase E |
-| **Referee bias modelling** | `matches.referee` is already stored but unused; some referees have measurable card/penalty tendencies | Phase E |
-| **Platt scaling** | Global sigmoid calibration across markets — should tighten remaining stated/actual gaps | Phase E |
-| **Home/away table splits** | Separate home-only and away-only standings, improving `league_position` signal | Phase E |
-| **Monte Carlo simulation** | Full probability distributions rather than point estimates | Future |
-| **Squad depth index** | Congested-fixture resilience from bench quality | Future |
+| **Week 0 (now)** | Implement derived standings | 1 day, removes 35% gap, zero cost |
+| **Week 1** | First real slip with manual odds check | Learn what edge looks like |
+| **Weeks 2-6** | Record every result, track half-time markets | Build real-season calibration data |
+| **Week 4** | `footy calibrate` | Tune weights to current-season patterns |
+| **Week 8** | Evaluate: Are you finding consistent edge? | Decision point: commit or pivot |
+| **Week 12** | If profitable: automate odds fetching | Otherwise: reassess model or approach |
+| **Month 6** | xG backfill decision | By now, new-season xG coverage tells you if it matters |
 
-### What the Model Looks Like at Full Power
+---
 
-With Phase D and E complete, a typical HIGH pick would be supported by 16 factors of statistical evidence, xG correcting for finishing luck, injury-adjusted strength, confirmed lineup, manager stability, referee tendency — and crucially, **genuine edge confirmation**: model P(80%) vs SportyBet implied P(72%) → +8% edge per leg.
+### What "Success" Looks Like at Each Stage
 
-At that point the expected accumulator edge per leg becomes calculable and verifiable, rather than inferred.
+**After 4 weeks:** You know whether the model finds **consistent 3-5% edge** over SportyBet's pricing on MEDIUM picks. If yes, the system works. If no, either (a) SportyBet is sharper than expected, or (b) the both-sides artifact is hiding something and you need to compare their offered odds against both sides of your probabilities.
+
+**After 12 weeks:** Your rolling 4-week HIGH accuracy is **≥78%** and MEDIUM **≥65%**, matching or exceeding the simulation baseline. Calibration is stable. You have 300-500 new-season picks settled and `footy accuracy` confirms the tiers hold in practice.
+
+**After 6 months:** You've tracked 20-25 weekends. If your slip accuracy (the picks YOU chose after research, not all model picks) consistently beats 80% at the legs you selected from HIGH/MEDIUM, and you're finding edge on 60%+ of those picks, the system is working as intended. The 50-leg jackpot is still rare (1 in 6,000-80,000 depending on per-leg accuracy), but your **expected value per slip is positive** and you're positioned to receive it when the week aligns.
+
+**If it's not working:** The most likely cause is not the model — it's that SportyBet's pricing is tighter than the 10% margin assumption, or that the leagues you're betting have sharper lines than the big-five European leagues the model was tuned on. Check your edge distribution: if 90% of your picks show <2% edge, the market is efficient and large-accumulator strategies won't overcome the margin.
+
+---
+
+### Final Recommendation
+
+**This week:** Derive standings (1 day). **This season:** Run it, track it, learn whether you find edge. The model is ready. The question is whether **your betting market is beatable with this approach**. Odds integration (manual at first) is how you find out.
 
 ---
 
