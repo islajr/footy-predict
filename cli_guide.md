@@ -1,8 +1,8 @@
 # Footy Predict — Complete CLI Guide
 
 > **Local-first. Decision-support. No hosting required.**
-> Version: August 2026 · 194 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
-> 16 factors · 15 market families (~65 picks/fixture) · 12 leagues · 21,935 matches
+> Version: August 2026 · 196 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
+> 16 factors · 15 market families (~65 picks/fixture) · 12 leagues · 21,848 matches
 
 ---
 
@@ -975,6 +975,26 @@ Identity is now `(league_id, season, home_team_id, away_team_id, date(date))`, e
 > [!NOTE]
 > If you ran `load-history` several times before August 2026, your accuracy history was computed over inflated data. The current baseline (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037) is the first measured on the deduplicated database.
 
+### Fixed: 87 fixtures duplicated by a kickoff-date revision
+
+The identity key above has a gap: a date is not stable. Football-data.org publishes a provisional kickoff for an unplayed fixture and revises it later, sometimes by a day. The revised row lands under a different key, so the upsert inserted a second copy rather than updating the first.
+
+The 2026/27 fixture lists carried 87 such pairs across six leagues — Serie A 29, La Liga 21, Bundesliga 12, Ligue 1 12, Liga Portugal 11, Eredivisie 2:
+
+```
+Udinese v Como    2026-08-22 and 2026-08-23   both matchday 1
+Bologna v Lazio   2026-08-23 and 2026-08-24   both matchday 1
+```
+
+Fixture identity now resolves on **two** keys. A row carrying a matchday is identified by `(league_id, season, home_team_id, away_team_id, matchday)`; everything else keeps the date-based key. A home/away pairing occurs at most once per matchday within a season — including in the split-format leagues that make the date necessary in the first key, where the repeat meeting falls in a later round. The matchday key holds no date, so a reschedule updates the fixture it belongs to.
+
+Both keys are needed. The matchday key cannot cover CSV loads, which carry no matchday at all; the date key still catches a matchday-bearing row meeting a matchday-less one on the same date.
+
+Migration 009 collapsed the 87, moving each survivor onto the currently published kickoff. Every affected league now holds exactly the double round-robin count — 380 fixtures for a 20-team league, 306 for an 18-team one — which is the cleanest available confirmation that the right rows went.
+
+> [!IMPORTANT]
+> **This mattered operationally, not just statistically.** A duplicated fixture appears twice in `footy report`, so a parlay could have carried the same match on two legs — breaking the one-pick-per-match rule the accumulator math depends on. If you built a slip before 2026-08-06, check it for repeated fixtures.
+
 ### Fixed: `--seasons` anchoring in pre-season
 
 `footy load-history --seasons 1` used to resolve "current season" from the calendar, so in August it asked for a season that had not been played and loaded an empty CSV. It now anchors to the **last season actually played** — European leagues step back before month 9, calendar leagues before March.
@@ -1016,7 +1036,7 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 
 | Metric | Value |
 |---|---|
-| Matches | 21,935 (19,484 finished) |
+| Matches | 21,848 (19,484 finished) |
 | Teams | 325 |
 | Leagues | 12 |
 | `match_stats` rows | 35,822 |
@@ -1090,7 +1110,7 @@ This section answers: what's missing, what to fix next, and which improvements g
 
 ### What the App Is Now (August 2026)
 
-**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 194 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
+**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 196 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
 
 **Data-integrity sound.** Team canonicalisation (325 clubs, no fragmentation), 11,609 duplicates removed, fixture-identity unique index, `--seasons` anchoring fixed. Repeated `load-history` runs no longer inflate the database.
 
@@ -1455,5 +1475,5 @@ The CLI is not a development tool — it is the final product. `footy report` is
 ---
 
 *Guide version: August 2026 · Footy Predict v1.0*
-*194 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
-*12 leagues · 15 market families · 16 factors · 21,935 matches (19,484 finished) · 325 teams*
+*196 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
+*12 leagues · 15 market families · 16 factors · 21,848 matches (19,484 finished) · 325 teams*
