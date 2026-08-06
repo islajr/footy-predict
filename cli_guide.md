@@ -1147,7 +1147,7 @@ Everything else on the "Phase E roadmap" is either dead code (events/predictions
 **Implementation cost:**
 - **Schema:** Standings table already exists with the right columns (played, won, drawn, lost, GF, GA, GD, points, home/away splits).
 - **Function:** `compute_standings(league_id, season)` — query all FINISHED matches, group by team, sum W/D/L and goals, rank by points then GD. ~80 lines.
-- **CLI:** `footy derive-standings` — runs for all league-seasons missing standings rows. Idempotent.
+- **CLI proposal:** A `derive-standings` command would run for all league-seasons missing standings rows. Not yet implemented.
 - **Time:** 1 day dev + test.
 
 **Caveat:** Derived tables lack the `form` string (last 5 results as "WWDLW") because API-Football computes that chronologically mid-season. You can derive it too by sorting matches by date — adds 20 lines but rarely changes a pick (form is also in `momentum` and `recent_form` factors).

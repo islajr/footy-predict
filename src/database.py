@@ -101,6 +101,20 @@ CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches(home_team_id, away_team_
 CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_identity
     ON matches(league_id, season, home_team_id, away_team_id, date(date));
 
+-- Fixture identity for rows that carry a matchday. A date is not stable —
+-- football-data.org publishes a provisional kickoff for an unplayed fixture and
+-- revises it later, and the revised row lands under a different date key, so
+-- the index above sees a new fixture. A pairing occurs at most once per
+-- matchday, including in the split-format leagues that put the date in that
+-- key, so this one survives a reschedule.
+--
+-- Partial because CSV loads carry no matchday and would all collide on NULL.
+-- Those rows keep the date-keyed identity, which also still catches a
+-- matchday-bearing row meeting a matchday-less one on the same date.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_matches_identity_matchday
+    ON matches(league_id, season, home_team_id, away_team_id, matchday)
+    WHERE matchday IS NOT NULL;
+
 -- Per-team match statistics
 CREATE TABLE IF NOT EXISTS match_stats (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -647,22 +661,55 @@ class Database:
     ) -> int:
         """Insert or update a match. Returns the match ID.
 
-        Identity is (league, season, both teams, calendar date). The previous
-        ON CONFLICT(api_football_id) clause never fired for CSV or
-        football-data.org rows — that column is nullable and SQLite treats
-        every NULL as distinct — so each re-fetch inserted a duplicate.
+        Identity resolves on two keys. A row carrying a matchday is identified
+        by (league, season, both teams, matchday); everything else by (league,
+        season, both teams, calendar date).
+
+        Both are needed. The date key alone splits a fixture whose kickoff gets
+        revised — football-data.org publishes provisionally, then moves it a day
+        — which put 87 duplicate 2026/27 fixtures in the database. The matchday
+        key alone cannot cover CSV loads, which carry no matchday at all. The
+        date key also still catches a matchday-bearing row meeting a
+        matchday-less one on the same date.
+
+        The original ON CONFLICT(api_football_id) clause fired for neither:
+        that column is nullable and SQLite treats every NULL as distinct, so
+        each re-fetch inserted a duplicate.
 
         A late score or status only ever overwrites a NULL: a FINISHED result
         already on the row is never reverted by a later SCHEDULED fetch.
         """
         with self._connect() as conn:
-            conn.execute(
+            row = conn.execute(
                 """
                 INSERT INTO matches (
                     api_football_id, league_id, season, matchday, date, status,
                     home_team_id, away_team_id, home_score, away_score,
                     ht_home_score, ht_away_score, referee, venue, source, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                ON CONFLICT(league_id, season, home_team_id, away_team_id, matchday)
+                    WHERE matchday IS NOT NULL
+                DO UPDATE SET
+                    api_football_id=COALESCE(matches.api_football_id, excluded.api_football_id),
+                    status=CASE
+                        WHEN matches.status = 'FINISHED' AND excluded.status != 'FINISHED'
+                            THEN matches.status
+                        ELSE excluded.status
+                    END,
+                    -- A revised kickoff is the point of this key, so the new
+                    -- date wins — unless it is the CSV loader's midnight
+                    -- placeholder, which is not a reschedule.
+                    date=CASE
+                        WHEN excluded.date LIKE '%T00:00:00%' THEN matches.date
+                        ELSE excluded.date
+                    END,
+                    home_score=COALESCE(excluded.home_score, matches.home_score),
+                    away_score=COALESCE(excluded.away_score, matches.away_score),
+                    ht_home_score=COALESCE(excluded.ht_home_score, matches.ht_home_score),
+                    ht_away_score=COALESCE(excluded.ht_away_score, matches.ht_away_score),
+                    referee=COALESCE(excluded.referee, matches.referee),
+                    venue=COALESCE(excluded.venue, matches.venue),
+                    updated_at=datetime('now')
                 ON CONFLICT(league_id, season, home_team_id, away_team_id, date(date))
                 DO UPDATE SET
                     api_football_id=COALESCE(matches.api_football_id, excluded.api_football_id),
@@ -687,17 +734,15 @@ class Database:
                     venue=COALESCE(excluded.venue, matches.venue),
                     matchday=COALESCE(excluded.matchday, matches.matchday),
                     updated_at=datetime('now')
+                RETURNING id
                 """,
                 (api_football_id, league_id, season, matchday, date, status,
                  home_team_id, away_team_id, home_score, away_score,
                  ht_home_score, ht_away_score, referee, venue, source),
-            )
-            row = conn.execute(
-                """SELECT id FROM matches
-                   WHERE league_id=? AND season=? AND home_team_id=?
-                     AND away_team_id=? AND date(date)=date(?)""",
-                (league_id, season, home_team_id, away_team_id, date),
             ).fetchone()
+            # RETURNING rather than a follow-up SELECT: once a reschedule can
+            # move the stored date, looking the row back up by date finds
+            # nothing whenever the incoming date lost the CASE above.
             return row["id"]
 
     def get_upcoming_matches(

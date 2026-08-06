@@ -152,7 +152,30 @@ def test_csv_and_api_rows_converge_on_one_fixture():
         os.unlink(path)
 
 
-def test_rescheduled_fixture_is_a_separate_row():
+def test_date_revision_updates_rather_than_duplicates():
+    """A revised kickoff date for the same matchday updates the existing row.
+
+    football-data.org publishes a provisional kickoff and revises it later,
+    sometimes by a day. The fixture is the same; the stored date must move.
+    """
+    db, path, l_id, home, away = _fixture_db()
+    try:
+        first = db.upsert_match(l_id, "2026-27", "2026-08-22T18:00:00Z",
+                                home, away, matchday=1, source="football_data_org")
+        revised = db.upsert_match(l_id, "2026-27", "2026-08-23T20:45:00Z",
+                                  home, away, matchday=1, source="football_data_org")
+        assert first == revised, "date revision split the fixture"
+
+        match = db.get_match(first)
+        assert match["date"] == "2026-08-23T20:45:00Z", "stored date did not update"
+
+        with db._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
+    finally:
+        os.unlink(path)
+
+
+def test_split_format_repeat_stays_separate():
     """A different calendar date is a different fixture.
 
     Split-format leagues (Scottish Premiership, Belgian Pro League) repeat a
@@ -161,10 +184,32 @@ def test_rescheduled_fixture_is_a_separate_row():
     db, path, l_id, home, away = _fixture_db()
     try:
         oct_match = db.upsert_match(l_id, "2026-27", "2026-10-19T15:00:00Z",
-                                    home, away, home_score=2, away_score=2)
+                                    home, away, matchday=10, home_score=2, away_score=2)
         feb_match = db.upsert_match(l_id, "2026-27", "2027-02-25T15:00:00Z",
-                                    home, away, home_score=5, away_score=1)
+                                    home, away, matchday=33, home_score=5, away_score=1)
         assert oct_match != feb_match
+    finally:
+        os.unlink(path)
+
+
+def test_csv_with_no_matchday_still_deduplicates_by_date():
+    """CSV rows carry no matchday, so they fall through to the date key.
+
+    Covered separately from the two-source merge above because the matchday
+    index is partial: a row without one must still meet a row that has one.
+    """
+    db, path, l_id, home, away = _fixture_db()
+    try:
+        csv = db.upsert_match(l_id, "2026-27", "2026-09-19T00:00:00",
+                              home, away, status="FINISHED",
+                              home_score=1, away_score=1, source="csv")
+        again = db.upsert_match(l_id, "2026-27", "2026-09-19T00:00:00",
+                                home, away, status="FINISHED",
+                                home_score=1, away_score=1, source="csv")
+        assert csv == again, "matchday-less rows stopped deduplicating"
+
+        with db._connect() as conn:
+            assert conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0] == 1
     finally:
         os.unlink(path)
 
