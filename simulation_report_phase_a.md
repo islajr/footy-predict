@@ -248,7 +248,7 @@ Either path is bounded by the free tier: 100 requests/day, 10 requests/minute.
 
 ---
 
-*Report generated: 2026-08-05 · 200 matches · 12,982 settled picks · 196 tests passing*
+*Report generated: 2026-08-05 · 200 matches · 12,982 settled picks · 210 tests passing*
 *Current state: HIGH 80.3% · MEDIUM 67.0% · Brier 0.2037 · VALUE_MIN_ODDS 1.32*
 *Database: 21,848 matches (19,484 finished) · 325 teams · 12 leagues*
 *Next milestone: backfill api_football_id for FDO leagues to activate xG · real-season calibration tracking*

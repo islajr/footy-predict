@@ -1,7 +1,7 @@
 # Footy Predict — Complete CLI Guide
 
 > **Local-first. Decision-support. No hosting required.**
-> Version: August 2026 · 196 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
+> Version: August 2026 · 210 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
 > 16 factors · 15 market families (~65 picks/fixture) · 12 leagues · 21,848 matches
 
 ---
@@ -73,7 +73,7 @@ Every match analysis runs 16 independent factors. Each produces a **score** (−
 | `home_form` | Home-only win rate, GPG, CPG, CS rate, streak | `matches` DB | 100% |
 | `away_form` | Away-only win rate, GPG, CPG, CS rate, streak | `matches` DB | 100% |
 | `head_to_head` | H2H record, BTTS rate, avg goals, venue-specific | `matches` DB | 100% |
-| `league_position` | Table position, points gap, GD, form string | `standings` DB | **64%** |
+| `league_position` | Table position, points gap, GD, form string | `standings` DB | **39%** |
 | `momentum` | Last 3 vs previous 3 PPG — improving or declining? | `matches` DB | 100% |
 | `scoring_frequency` | Goals per game (home/away split), blank game rate | `matches` DB | 100% |
 | `defensive_record` | Goals conceded per game, clean sheet rate | `matches` DB | 100% |
@@ -83,14 +83,14 @@ Every match analysis runs 16 independent factors. Each produces a **score** (−
 | `rivalry` | Derby detection by name heuristic + known pairs | Static config | 100% |
 | `attacking_matchup` | Home GPG vs Away CPG and vice versa — net attack edge | `matches` DB | 100% |
 | `venue_advantage` | Team's home win rate vs their away win rate | `matches` DB | 100% |
-| `opponent_strength` | Strength-adjusted PPG using opponent standings rank | `matches` + `standings` | **67.5%** |
+| `opponent_strength` | Strength-adjusted PPG using opponent standings rank | `matches` + `standings` | **40%** |
 | `xg_quality` | xG per game, xG vs actual ratio, xG against | `match_stats.expected_goals` | **0%** |
 
 > [!WARNING]
 > **`xg_quality` has 0% coverage and will not self-heal.** Earlier versions of this guide said it "populates automatically once the season starts and you run `footy fetch --stats`." That is wrong, and the reason is worth understanding — see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch). The factor contributes 0 to analysis but breaks nothing.
 
 > [!NOTE]
-> `league_position` and `opponent_strength` sit at ~65% because standings are only stored for league-seasons that were fetched from an API — the historical CSV bulk-load carries results but no tables. Both improve as you fetch standings through the season.
+> `league_position` and `opponent_strength` read the league table for the fixture's **own season**, and they now sit out any league-season whose table carries no real ranking (see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch)). The coverage figures above count only usable tables. The historical CSV bulk-load carries results but no tables at all, which is where most of the gap comes from; both factors improve as you fetch standings through the season. Run `footy status` to see which league-seasons are currently sitting out.
 
 ### The Engine Layer
 
@@ -925,7 +925,7 @@ At 0.2037, when the model says 80% outcomes happen roughly 80% of the time — n
 | **Confirmed lineups** | No lineup data pre-match | Check lineups 1h before KO | Phase E |
 | **Manager changes** | New-manager bounce not detected | Flag manually, be cautious | Phase E |
 | **Bookmaker odds** | Cannot measure true edge | Use the 0.90 adjustment as proxy | Phase D/E |
-| **Standings depth** | `league_position` and `opponent_strength` at ~65% | Fetch standings through the season | Improves with use |
+| **Standings depth** | `league_position` and `opponent_strength` at ~40% | Fetch standings through the season | Improves with use |
 | **Early-season form** | Weeks 1–6 lean on historical data | Use higher odds threshold early | Auto-improves |
 
 ### Known Calibration Issues (Still Overconfident)
@@ -995,6 +995,42 @@ Migration 009 collapsed the 87, moving each survivor onto the currently publishe
 > [!IMPORTANT]
 > **This mattered operationally, not just statistically.** A duplicated fixture appears twice in `footy report`, so a parlay could have carried the same match on two legs — breaking the one-pick-per-match rule the accumulator math depends on. If you built a slip before 2026-08-06, check it for repeated fixtures.
 
+### Fixed: a blank standings table read as a confident draw signal
+
+Two factors read the league table: `league_position` (7.5% weight) and `opponent_strength` (4.5%). Both checked whether standings *existed*; neither checked whether they *said anything*.
+
+A pre-season fetch returns every team at position 1 with 0 played and 0 points. Feed that to `league_position` and the position gap is 0, the points gap is 0, the score is exactly 0.000 — reported at **confidence 0.85**, because the code took standings to be objective data by definition. `opponent_strength` failed more quietly: identical positions make every opponent weight identical, so it degraded to plain PPG while its rationale still claimed a rank adjustment.
+
+A confident zero is worse than no data. A factor at confidence 0.0 is weighted out of the aggregate; a factor at 0.85 saying "these teams are level" survives the weighted average and pulls the result toward neutral. The bug made the engine *more* certain of a non-answer than it would have been knowing nothing at all.
+
+Both factors now gate on a shared predicate: positions must be distinct, and at least one match must have been played. Six of the 19 stored league-seasons fail it.
+
+```
+eredivisie      2025-26   18 teams, 1 distinct position, 0 played
+ligue-1         2025-26   18 teams, 1 distinct position, 0 played
+premier-league  2025-26   23 teams, 4 distinct positions
+eredivisie      2026-27   18 teams, 1 distinct position, 0 played
+ligue-1         2026-27   18 teams, 1 distinct position, 0 played
+serie-a         2026-27   20 teams, 1 distinct position, 0 played
+```
+
+The rows are left in place. They are inert now, and their `fetched_at` timestamps are the evidence of which fetches came back empty. `footy status` reports the count and names them, so the condition is visible rather than silent.
+
+> [!NOTE]
+> The 2025-26 sets are the interesting ones — those seasons are complete, with thousands of finished matches behind each blank table. They were fetched on 2026-07-10, after the season had ended, and came back empty anyway. That is a fetch-side problem this fix does not solve; it only stops the empty result being trusted.
+
+### Watch: four 2026-27 tables hold last season's final standings
+
+Distinct from the blank tables above, and **not** caught by the ranking check, because these tables are perfectly well-formed — they are simply the wrong season. Bundesliga, La Liga, Liga Portugal and Premier League each carry a completed table under the 2026-27 label:
+
+```
+premier-league 2026-27   Arsenal 1st, 38 played, 85 points   fetched 2026-08-03
+```
+
+Not one 2026-27 match had been played on 2026-08-03. Asking an API for "current standings" during pre-season returns the season that just ended, and it is stored under the label that was requested — the same silent-fallback shape as the API-Football free-tier season block.
+
+The effect is mild and self-correcting: the position factors run on last season's table for matchday 1, which is a defensible prior, and the next fetch after matchday 1 overwrites it. Worth knowing if you are reading a rationale that cites a points total no team could have earned yet.
+
 ### Fixed: `--seasons` anchoring in pre-season
 
 `footy load-history --seasons 1` used to resolve "current season" from the calendar, so in August it asked for a season that had not been played and loaded an empty CSV. It now anchors to the **last season actually played** — European leagues step back before month 9, calendar leagues before March.
@@ -1042,10 +1078,11 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 | `match_stats` rows | 35,822 |
 | — with `expected_goals` | **44** |
 | — with `possession` | 100 |
-| Standings rows | 338 |
+| Standings rows | 338 (19 league-seasons) |
+| — league-seasons with a usable ranking | **13 of 19** |
 | Team-season stats | 86 |
 | Settled predictions | 13,408 |
-| Tests | 194 passing |
+| Tests | 210 passing |
 
 ---
 
@@ -1073,7 +1110,7 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 
 ⚠️ **`xg_quality` contributes nothing** until `api_football_id` is backfilled or new-season fixtures accumulate.
 
-⚠️ **`league_position` and `opponent_strength` at ~65% coverage** — fetch standings regularly to improve them.
+⚠️ **`league_position` and `opponent_strength` at ~40% coverage** — fetch standings regularly to improve them, and check `footy status` for league-seasons with no usable table.
 
 ⚠️ **Eliteserien (3 seasons) and Saudi Pro League (1 season)** are materially thinner than the rest.
 
@@ -1110,7 +1147,7 @@ This section answers: what's missing, what to fix next, and which improvements g
 
 ### What the App Is Now (August 2026)
 
-**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 196 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
+**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 210 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
 
 **Data-integrity sound.** Team canonicalisation (325 clubs, no fragmentation), 11,609 duplicates removed, fixture-identity unique index, `--seasons` anchoring fixed. Repeated `load-history` runs no longer inflate the database.
 
@@ -1157,7 +1194,7 @@ Everything else on the "Phase E roadmap" is either dead code (events/predictions
 
 **What it is:** Compute league tables from match results already in the database, rather than fetching them from API-Football.
 
-**Why it matters:** `league_position` and `opponent_strength` currently sit at 64-67% coverage because standings only exist for the 12 league-seasons you manually fetched. The other 46 league-seasons have complete match results but no table. This weakens two factors on 35% of your fixtures.
+**Why it matters:** `league_position` and `opponent_strength` sit at ~40% coverage. Standings exist only for the league-seasons fetched from an API, and six of those hold no usable ranking. The remaining 46 league-seasons have complete match results but no table at all. This weakens two factors — 12% of the total weight — on roughly 60% of your fixtures.
 
 **What it buys you:**
 - `league_position` and `opponent_strength` at **100% coverage** for every completed league-season
@@ -1167,12 +1204,12 @@ Everything else on the "Phase E roadmap" is either dead code (events/predictions
 **Implementation cost:**
 - **Schema:** Standings table already exists with the right columns (played, won, drawn, lost, GF, GA, GD, points, home/away splits).
 - **Function:** `compute_standings(league_id, season)` — query all FINISHED matches, group by team, sum W/D/L and goals, rank by points then GD. ~80 lines.
-- **CLI proposal:** A `derive-standings` command would run for all league-seasons missing standings rows. Not yet implemented.
+- **CLI proposal:** A `derive-standings` command would run for all league-seasons missing standings rows — and for the six that hold rows with no usable ranking, which the ranking check now makes visible in `footy status`. Not yet implemented.
 - **Time:** 1 day dev + test.
 
 **Caveat:** Derived tables lack the `form` string (last 5 results as "WWDLW") because API-Football computes that chronologically mid-season. You can derive it too by sorting matches by date — adds 20 lines but rarely changes a pick (form is also in `momentum` and `recent_form` factors).
 
-**Recommendation:** Implement this **immediately**. Highest ROI fix in the codebase — one day of work removes a 35% data gap at zero runtime cost forever.
+**Recommendation:** Worth doing, but for **calibration quality rather than this week's picks**. Both factors read the fixture's own season, so a 2026-27 fixture is unaffected by a missing 2023-24 table. What derived standings improve is the historical record the calibrator learns from — 46 league-seasons covering the bulk of your finished matches. That pays off over a season, not over a weekend.
 
 ---
 
@@ -1221,7 +1258,7 @@ Use this to decide:
 
 #### **Priority 1 (Do This Week):**
 
-✅ **Derive standings** — 1 day dev, zero cost, fixes 35% data gap permanently.
+✅ **Manual odds check on your shortlist** — 10-15 min/week, zero dev cost. Nothing else tells you whether the model has an edge.
 
 #### **Priority 2 (Do Before First Real Slip):**
 
@@ -1253,7 +1290,7 @@ Use this to decide:
 
 | When | What | Why |
 |---|---|---|
-| **Week 0 (now)** | Implement derived standings | 1 day, removes 35% gap, zero cost |
+| **Week 0 (now)** | Manual odds check on the shortlist | The only way to find out if there is edge |
 | **Week 1** | First real slip with manual odds check | Learn what edge looks like |
 | **Weeks 2-6** | Record every result, track half-time markets | Build real-season calibration data |
 | **Week 4** | `footy calibrate` | Tune weights to current-season patterns |
@@ -1277,7 +1314,7 @@ Use this to decide:
 
 ### Final Recommendation
 
-**This week:** Derive standings (1 day). **This season:** Run it, track it, learn whether you find edge. The model is ready. The question is whether **your betting market is beatable with this approach**. Odds integration (manual at first) is how you find out.
+**This week:** Check the model's shortlist against real SportyBet odds. **This season:** Run it, track it, derive standings when you want better calibration, and learn whether you find edge. The model is ready. The question is whether **your betting market is beatable with this approach**. Odds integration (manual at first) is how you find out.
 
 ---
 
@@ -1475,5 +1512,5 @@ The CLI is not a development tool — it is the final product. `footy report` is
 ---
 
 *Guide version: August 2026 · Footy Predict v1.0*
-*196 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
+*210 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
 *12 leagues · 15 market families · 16 factors · 21,848 matches (19,484 finished) · 325 teams*

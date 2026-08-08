@@ -177,7 +177,7 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 - ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop
 - ✅ Data integrity: team canonicalisation (325 clubs), 11,609 duplicate rows removed, fixture-identity unique index
-- ✅ 196 tests passing
+- ✅ 210 tests passing
 - ⚠️ xG quality factor blocked at 0% — FDO-sourced rows lack `api_football_id`; resolves as 2026/27 fixtures arrive
 
 ### Phase E (After Season Start)
@@ -216,4 +216,4 @@ python /path/to/simulate_historical.py
 
 ---
 
-*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 196 tests*
+*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 210 tests*
