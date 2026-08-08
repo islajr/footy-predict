@@ -166,6 +166,27 @@ def _trend_score(results: list[str]) -> float:
     return score / total_weight
 
 
+def _standings_are_ranked(standings: list[dict[str, Any]]) -> bool:
+    """Return True if a standings table actually ranks the teams in it.
+
+    A table can exist and still say nothing. Pre-season fetches return every
+    team at position 1 with nothing played, and the factors that read positions
+    then produce a confident zero — worse than no data at all, because a
+    zero-confidence factor is weighted out of the aggregate while a confident
+    one dilutes it.
+
+    Two things must hold. Positions must be distinct, or there is no ordering
+    to read. And at least one match must have been played, or the ordering is
+    alphabetical rather than earned.
+    """
+    if not standings:
+        return False
+    positions = {s.get("position") for s in standings}
+    if len(positions) < len(standings):
+        return False
+    return any((s.get("played") or 0) > 0 for s in standings)
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Factor 1 — Recent Form
 # ═══════════════════════════════════════════════════════════════
@@ -927,6 +948,12 @@ def league_position(
 
     if not standings:
         return _empty_result("league_position", "No standings data available")
+
+    if not _standings_are_ranked(standings):
+        return _empty_result(
+            "league_position",
+            "Standings table carries no ranking yet (pre-season or unordered)",
+        )
 
     home_standing = next((s for s in standings if s["team_id"] == home_id), None)
     away_standing = next((s for s in standings if s["team_id"] == away_id), None)
@@ -1992,8 +2019,10 @@ def opponent_strength(
         strength_adjusted_ppg = sum(adj_points) / sum(weights)
         score = clamp((home_sadj_ppg - away_sadj_ppg) / 1.5, -1, 1)
 
-    Data requirement: current season standings must be available. Falls back
-    to standard PPG (score = 0.0, low confidence) when standings are absent.
+    Data requirement: current season standings must be available *and ranked*.
+    Returns a zero-confidence result when they are absent, or present but
+    carrying no ordering — a pre-season table puts every team at position 1,
+    which makes every opponent weight identical.
     """
     home_matches = db.get_recent_matches(home_id, limit=10)
     away_matches = db.get_recent_matches(away_id, limit=10)
@@ -2009,6 +2038,15 @@ def opponent_strength(
         return _empty_result(
             "opponent_strength",
             "No standings data available — cannot weight opponents by rank",
+        )
+
+    if not _standings_are_ranked(standings):
+        # Every opponent at the same position means every weight is identical,
+        # which silently collapses this factor to plain PPG — at full
+        # confidence, and under a rationale claiming rank adjustment.
+        return _empty_result(
+            "opponent_strength",
+            "Standings table carries no ranking yet — opponent weights would be uniform",
         )
 
     # Build position lookup: team_id → league rank

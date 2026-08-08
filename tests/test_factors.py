@@ -721,6 +721,134 @@ def test_opponent_strength_all_draws_returns_zero_score(temp_db):
 
 
 # ════════════════════════════════════════════════════════════════
+#  Degenerate standings — a table that exists but ranks nothing
+# ════════════════════════════════════════════════════════════════
+
+def _preseason_table(db, league_id, season, team_ids):
+    """Store the pre-season table the API returns: everyone 1st, nothing played.
+
+    This is the shape found live on eredivisie, ligue-1 and serie-a for
+    2026-27, and on premier-league 2025-26 in a partial form.
+    """
+    for tid in team_ids:
+        db.upsert_standing(
+            league_id=league_id, season=season, team_id=tid,
+            position=1, played=0, won=0, drawn=0, lost=0,
+            goals_for=0, goals_against=0, goal_difference=0, points=0,
+        )
+
+
+def test_league_position_treats_preseason_table_as_missing(temp_db):
+    """A blank table must read as no data, not as a confident draw signal.
+
+    With every team at position 1 on 0 points the score computes to exactly
+    0.0, and the factor used to report that at confidence 0.85. A zero at high
+    confidence is worse than no data: it survives the weighted average and
+    drags the aggregate toward neutral.
+    """
+    db = temp_db
+    leagues = db.get_all_leagues()
+    league_id = next(l for l in leagues if l["slug"] == "serie-a")["id"]
+    season = "2026-27"
+
+    home_id = db.upsert_team("Udinese Calcio", league_id, api_football_id=494)
+    away_id = db.upsert_team("Como 1907", league_id, api_football_id=895)
+    _preseason_table(db, league_id, season, [home_id, away_id])
+
+    res = league_position(db, home_id, away_id, league_id, season)
+    assert res.confidence == 0.0, (
+        f"blank table reported at confidence {res.confidence:.2f}: {res.rationale}"
+    )
+    assert res.score == 0.0
+
+
+def test_opponent_strength_treats_preseason_table_as_missing(temp_db):
+    """Uniform positions make every opponent weight identical.
+
+    The factor then degrades to plain PPG while its rationale still claims a
+    rank adjustment — and, because confidence is driven by match count rather
+    than table quality, it says so at full strength.
+    """
+    db = temp_db
+    leagues = db.get_all_leagues()
+    league_id = next(l for l in leagues if l["slug"] == "eredivisie")["id"]
+    season = "2026-27"
+
+    home_id = db.upsert_team("Ajax", league_id, api_football_id=194)
+    away_id = db.upsert_team("PSV", league_id, api_football_id=197)
+    opp_id = db.upsert_team("Feyenoord", league_id, api_football_id=209)
+    for i in range(5):
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2026-09-{i+1:02d}T15:00:00",
+            home_team_id=home_id, away_team_id=opp_id,
+            status="FINISHED", home_score=2, away_score=1,
+        )
+        db.upsert_match(
+            league_id=league_id, season=season,
+            date=f"2026-09-{i+1:02d}T17:00:00",
+            home_team_id=away_id, away_team_id=opp_id,
+            status="FINISHED", home_score=1, away_score=1,
+        )
+    _preseason_table(db, league_id, season, [home_id, away_id, opp_id])
+
+    res = opponent_strength(db, home_id, away_id, league_id, season)
+    assert res.confidence == 0.0, (
+        f"unranked table reported at confidence {res.confidence:.2f}: {res.rationale}"
+    )
+
+
+def test_duplicate_positions_read_as_unranked(temp_db):
+    """Played matches are not enough — the ordering has to be real.
+
+    premier-league 2025-26 holds 23 rows across 4 distinct positions, a
+    relegation-contamination artifact. Points and games played look plausible,
+    so only the collision in the position column gives it away.
+    """
+    db = temp_db
+    leagues = db.get_all_leagues()
+    league_id = next(l for l in leagues if l["slug"] == "premier-league")["id"]
+    season = "2025-26"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    for tid in (home_id, away_id):
+        db.upsert_standing(
+            league_id=league_id, season=season, team_id=tid,
+            position=1, played=38, won=25, drawn=10, lost=3,
+            goals_for=70, goals_against=30, goal_difference=40, points=85,
+        )
+
+    res = league_position(db, home_id, away_id, league_id, season)
+    assert res.confidence == 0.0
+
+
+def test_first_matchday_table_is_usable(temp_db):
+    """One round played is thin, but it is a real ranking — keep reading it.
+
+    Guards the other side of the check: the fix must not blank out every early
+    season table, only the ones with no ordering in them.
+    """
+    db = temp_db
+    leagues = db.get_all_leagues()
+    league_id = next(l for l in leagues if l["slug"] == "premier-league")["id"]
+    season = "2026-27"
+
+    home_id = db.upsert_team("Arsenal", league_id, api_football_id=42)
+    away_id = db.upsert_team("Chelsea", league_id, api_football_id=49)
+    db.upsert_standing(league_id=league_id, season=season, team_id=home_id,
+                       position=1, played=1, won=1, drawn=0, lost=0,
+                       goals_for=3, goals_against=0, goal_difference=3, points=3)
+    db.upsert_standing(league_id=league_id, season=season, team_id=away_id,
+                       position=20, played=1, won=0, drawn=0, lost=1,
+                       goals_for=0, goals_against=3, goal_difference=-3, points=0)
+
+    res = league_position(db, home_id, away_id, league_id, season)
+    assert res.confidence > 0.8
+    assert res.score > 0.0
+
+
+# ════════════════════════════════════════════════════════════════
 #  Phase B — database: standings home/away splits
 # ════════════════════════════════════════════════════════════════
 
