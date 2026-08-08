@@ -19,6 +19,7 @@ from src.analysis.factors import (
     venue_advantage,
     attacking_matchup,
     xg_quality,
+    standings_are_ranked,
 )
 
 @pytest.fixture
@@ -846,6 +847,25 @@ def test_first_matchday_table_is_usable(temp_db):
     res = league_position(db, home_id, away_id, league_id, season)
     assert res.confidence > 0.8
     assert res.score > 0.0
+
+
+@pytest.mark.parametrize("table, ranked", [
+    ([], False),
+    ([{"position": 1, "played": 0}, {"position": 1, "played": 0}], False),
+    ([{"position": 1, "played": 38}, {"position": 1, "played": 38}], False),
+    ([{"position": 1, "played": 0}, {"position": 2, "played": 0}], False),
+    ([{"position": 1, "played": 1}, {"position": 2, "played": 0}], True),
+    ([{"position": 1, "played": 38}, {"position": 2, "played": 38}], True),
+    # A single-team table is trivially ordered; played is what decides it.
+    ([{"position": 1, "played": 0}], False),
+    ([{"position": 1, "played": 5}], True),
+    # Missing keys must not raise — get_standings rows are dicts from SQLite.
+    ([{"position": 1}, {"position": 2}], False),
+    ([{"position": 1, "played": None}, {"position": 2, "played": 3}], True),
+])
+def test_standings_are_ranked(table, ranked):
+    """The predicate both factors and `footy status` gate on."""
+    assert standings_are_ranked(table) is ranked
 
 
 # ════════════════════════════════════════════════════════════════

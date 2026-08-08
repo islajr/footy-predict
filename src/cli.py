@@ -413,7 +413,34 @@ def status(ctx: click.Context) -> None:
     table.add_row("  Upcoming", str(upcoming))
     table.add_row("Predictions", str(prediction_count))
 
+    # Standings health. A table that exists but ranks nothing reads as absent
+    # to league_position and opponent_strength, so it is worth seeing here
+    # rather than discovering it in a rationale that says "no data available".
+    from src.analysis.factors import standings_are_ranked
+
+    with db._connect() as conn:
+        sets = conn.execute(
+            "SELECT DISTINCT league_id, season FROM standings"
+        ).fetchall()
+    unranked = [
+        s for s in sets if not standings_are_ranked(db.get_standings(s["league_id"], s["season"]))
+    ]
+    table.add_row("Standings sets", str(len(sets)))
+    if unranked:
+        table.add_row("  Unranked (ignored)", f"[yellow]{len(unranked)}[/yellow]")
+
     console.print(table)
+
+    if unranked:
+        slugs = {l["id"]: l["slug"] for l in leagues}
+        detail = ", ".join(
+            sorted(f"{slugs.get(s['league_id'], s['league_id'])} {s['season']}" for s in unranked)
+        )
+        console.print(
+            f"[yellow]![/yellow] No usable ranking in: {detail}\n"
+            "  Position factors sit out these league-seasons. Pre-season tables "
+            "fill in after matchday 1."
+        )
 
 
 # ═══════════════════════════════════════════════════════════════

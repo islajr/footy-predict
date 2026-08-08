@@ -166,7 +166,7 @@ def _trend_score(results: list[str]) -> float:
     return score / total_weight
 
 
-def _standings_are_ranked(standings: list[dict[str, Any]]) -> bool:
+def standings_are_ranked(standings: list[dict[str, Any]]) -> bool:
     """Return True if a standings table actually ranks the teams in it.
 
     A table can exist and still say nothing. Pre-season fetches return every
@@ -949,7 +949,7 @@ def league_position(
     if not standings:
         return _empty_result("league_position", "No standings data available")
 
-    if not _standings_are_ranked(standings):
+    if not standings_are_ranked(standings):
         return _empty_result(
             "league_position",
             "Standings table carries no ranking yet (pre-season or unordered)",
@@ -2040,7 +2040,7 @@ def opponent_strength(
             "No standings data available — cannot weight opponents by rank",
         )
 
-    if not _standings_are_ranked(standings):
+    if not standings_are_ranked(standings):
         # Every opponent at the same position means every weight is identical,
         # which silently collapses this factor to plain PPG — at full
         # confidence, and under a rationale claiming rank adjustment.
