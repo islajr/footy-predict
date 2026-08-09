@@ -1,7 +1,7 @@
 # Footy Predict — Complete CLI Guide
 
 > **Local-first. Decision-support. No hosting required.**
-> Version: August 2026 · 210 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
+> Version: August 2026 · 245 tests passing · HIGH accuracy 80.3% · MEDIUM 67.0% · Brier 0.2037
 > 16 factors · 15 market families (~65 picks/fixture) · 12 leagues · 21,848 matches
 
 ---
@@ -90,7 +90,7 @@ Every match analysis runs 16 independent factors. Each produces a **score** (−
 > **`xg_quality` has 0% coverage and will not self-heal.** Earlier versions of this guide said it "populates automatically once the season starts and you run `footy fetch --stats`." That is wrong, and the reason is worth understanding — see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch). The factor contributes 0 to analysis but breaks nothing.
 
 > [!NOTE]
-> `league_position` and `opponent_strength` read the league table for the fixture's **own season**, and they now sit out any league-season whose table carries no real ranking (see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch)). The coverage figures above count only usable tables. The historical CSV bulk-load carries results but no tables at all, which is where most of the gap comes from; both factors improve as you fetch standings through the season. Run `footy status` to see which league-seasons are currently sitting out.
+> `league_position` and `opponent_strength` read the league table for the fixture's **own season**, and they sit out any league-season whose table carries no real ranking (see [Section 10](#10-data-integrity--what-was-fixed-and-what-to-watch)). The coverage figures above count only usable tables, and they were **measured before `footy derive-standings` ran** — the historical CSV bulk-load carries results but no tables at all, which was where most of the gap came from. 19,000 of 19,484 finished matches now sit in a league-season with a ranked table, so the next simulation should show these two much higher; the figures above stay as measured until then. Run `footy status` to see which league-seasons are still sitting out.
 
 ### The Engine Layer
 
@@ -276,7 +276,7 @@ footy COMMAND --help                Show help for a specific command
 footy -v COMMAND                    Run with debug logging
 ```
 
-Full command list: `status`, `fetch`, `fetch-upcoming`, `load-history`, `analyze matchweek`, `analyze match`, `picks`, `report`, `parlay`, `record`, `accuracy`, `calibrate`, `serve`, `bot start`.
+Full command list: `status`, `fetch`, `fetch-upcoming`, `load-history`, `derive-standings`, `analyze matchweek`, `analyze match`, `picks`, `report`, `parlay`, `record`, `accuracy`, `calibrate`, `serve`, `bot start`.
 
 ---
 
@@ -359,6 +359,44 @@ footy load-history -l serie-a -s 8            # 8 seasons of Serie A
 > **`--seasons` counts back from the last season actually played, not the current calendar season.** In pre-season (August, before month 9) European leagues step back one season, so `--seasons 1` loads the just-completed season rather than an empty CSV for a season that has not started. Calendar-format leagues like Eliteserien step back before March.
 
 **Use it**: Once on setup, and again at the start of each new season to pull the just-completed season's full CSV.
+
+---
+
+### `footy derive-standings`
+
+**What it does**: Rebuilds league tables by adding up the match results already stored, instead of fetching them. No API cost at all.
+
+```bash
+footy derive-standings                        # every league-season whose table is missing or ranks nothing
+footy derive-standings --dry-run              # show what would be written and stop
+footy derive-standings -l eredivisie -s 2025-26   # one table
+footy derive-standings --all                  # include league-seasons that already rank
+footy derive-standings --force -l la-liga -s 2025-26   # override the refusals below
+```
+
+| Option | Meaning |
+|---|---|
+| `-l`, `--league TEXT` | League slug. Omit for every league. |
+| `-s`, `--season TEXT` | Season label, e.g. `2025-26`. Omit for all. |
+| `--all` | Also consider league-seasons that already have a usable ranking |
+| `--force` | Write even where the table looks wrong or already ranks |
+| `--dry-run` | Report the plan without writing |
+
+**The table it derives** carries points, W/D/L, goals for/against, goal difference, the home and away splits, and the last-five `form` string in match order — every column a fetched table fills.
+
+**It declines three ways**, and says which:
+
+- **The derivation ranks nothing.** Every team at position 1 means the match query returned nothing; writing that recreates the blank-table condition §10 describes. Not overridable, `--force` included.
+- **The match set is incoherent.** Once a season has no fixtures left to play, every pair of teams in it must have met. A pair that never did is the signature of one club stored under two `teams` rows — `CA Osasuna` and `Osasuna` are one club, which is why La Liga 2025-26 derives 21 teams with 19 of them on 40 games of a 38-game season. The arithmetic is wrong in every position, so the season is skipped rather than rebuilt wrongly. Same shape in Bundesliga 2025-26 (`1. FSV Mainz 05` / `Mainz`), Liga Portugal 2025-26 (six pairs), Scottish Premiership 2024-25, Süper Lig 2024-25 and Eliteserien 2022/2023/2024.
+- **A ranked table is already stored.** A fetched table is real data and may cover teams whose matches were never stored, so replacing it takes `--force`.
+
+> [!NOTE]
+> Split-format leagues pass. The Belgian Pro League's championship and relegation playoffs legitimately finish a season with teams on different played counts (35–40 in 2025-26) — the check is on pairings, not on count spread, precisely so those seasons derive normally.
+
+> [!IMPORTANT]
+> The write **replaces** rather than merges: standings rows for teams outside the derived table are deleted first. This is what makes the repair take. Premier League 2025-26 held 23 rows for a 20-team competition — Coventry, Hull and Ipswich left behind by the mislabelled July fetch — and writing 20 correct rows over that would leave three at position 1, so the table would still fail the ranking check.
+
+**Use it**: After `load-history`, and any time `footy status` reports league-seasons with no usable ranking. The 2026-08-09 run rebuilt 47 tables and declined 2, taking ranked league-seasons from 13 to 60.
 
 ---
 
@@ -821,6 +859,7 @@ footy report             # works offline
 footy picks -c HIGH      # works offline
 footy analyze matchweek  # works offline
 footy accuracy           # works offline
+footy derive-standings   # works offline — builds league tables from stored results
 footy serve              # works offline (local web UI)
 
 # Only these need internet:
@@ -925,7 +964,7 @@ At 0.2037, when the model says 80% outcomes happen roughly 80% of the time — n
 | **Confirmed lineups** | No lineup data pre-match | Check lineups 1h before KO | Phase E |
 | **Manager changes** | New-manager bounce not detected | Flag manually, be cautious | Phase E |
 | **Bookmaker odds** | Cannot measure true edge | Use the 0.90 adjustment as proxy | Phase D/E |
-| **Standings depth** | `league_position` and `opponent_strength` at ~40% | Fetch standings through the season | Improves with use |
+| **Standings depth** | Nine league-seasons still have no table — a club split across two `teams` rows | `footy status` names them | Needs a `team_names.py` alias entry — see Section 10 |
 | **Early-season form** | Weeks 1–6 lean on historical data | Use higher odds threshold early | Auto-improves |
 
 ### Known Calibration Issues (Still Overconfident)
@@ -1003,7 +1042,7 @@ A pre-season fetch returns every team at position 1 with 0 played and 0 points. 
 
 A confident zero is worse than no data. A factor at confidence 0.0 is weighted out of the aggregate; a factor at 0.85 saying "these teams are level" survives the weighted average and pulls the result toward neutral. The bug made the engine *more* certain of a non-answer than it would have been knowing nothing at all.
 
-Both factors now gate on a shared predicate: positions must be distinct, and at least one match must have been played. Six of the 19 stored league-seasons fail it.
+Both factors now gate on a shared predicate: positions must be distinct, and at least one match must have been played. Six of the 19 stored league-seasons failed it when the check landed:
 
 ```
 eredivisie      2025-26   18 teams, 1 distinct position, 0 played
@@ -1014,23 +1053,20 @@ ligue-1         2026-27   18 teams, 1 distinct position, 0 played
 serie-a         2026-27   20 teams, 1 distinct position, 0 played
 ```
 
-The rows are left in place. They are inert now, and their `fetched_at` timestamps are the evidence of which fetches came back empty. `footy status` reports the count and names them, so the condition is visible rather than silent.
+The three 2025-26 sets have since been rebuilt by derivation (below). The three 2026-27 sets are legitimately empty — those seasons have not kicked off, so there is nothing to derive; they fill in after matchday 1. `footy status` reports the count and names them, so the condition is visible rather than silent.
 
-> [!NOTE]
-> The 2025-26 sets are the interesting ones — those seasons are complete. Eredivisie and Ligue 1 each have all 306 fixtures played and stored, yet their tables hold nothing. The reason is the mislabelling described next, not a fetch that simply failed.
+### Fixed: standings were labelled by the calendar, not by the season the API returned
 
-### Open: standings are labelled by the calendar, not by the season the API returned
+The blank tables above were a symptom. The cause was that a standings fetch never recorded *which season it received* — and during the July–August turnover, what it received and what it was labelled disagreed by a full season, in both directions.
 
-The blank tables above are a symptom. The cause is that a standings fetch never records *which season it received* — and during the July–August turnover, what it receives and what it is labelled disagree by a full season, in both directions.
-
-`fetch_and_store_standings` (`src/fetchers/football_data_org.py:438`) computes `season_label = league.get_season_label()` from today's date, then calls `get_standings(fdo_code)`, which sends **no season parameter** and returns only the table rows — discarding the `season` block that says what the response actually covers. Two fetches, two months apart, produced exact mirror images of each other:
+`fetch_and_store_standings` computed `season_label = league.get_season_label()` from today's date, then called `get_standings(fdo_code)`, which sent **no season parameter** and returned only the table rows — discarding the `season` block that says what the response actually covers. Two fetches, two months apart, produced exact mirror images of each other:
 
 ```
 fetched 2026-07-10  →  labelled 2025-26  →  actually the empty 2026-27 table
 fetched 2026-08-03  →  labelled 2026-27  →  actually the final 2025-26 table
 ```
 
-The July run is provable from the team list, not just the zeros. `premier-league` **2025-26** holds rows for Coventry, Hull and Ipswich — three clubs that played **zero** 2025-26 matches and 38 apiece in 2026-27. Only a 2026-27 table contains them. The August run is provable the same way in reverse: `premier-league` **2026-27** is Arsenal 1st on 85 points from 38 played, and its bottom three are West Ham, Burnley and Wolves — the clubs *relegated* out of 2026-27 before it began.
+The July run is provable from the team list, not just the zeros. `premier-league` **2025-26** held rows for Coventry, Hull and Ipswich — three clubs that played **zero** 2025-26 matches and 38 apiece in 2026-27. Only a 2026-27 table contains them. The August run is provable the same way in reverse: `premier-league` **2026-27** is Arsenal 1st on 85 points from 38 played, and its bottom three are West Ham, Burnley and Wolves — the clubs *relegated* out of 2026-27 before it began.
 
 Both are detectable without knowing any of this, by contradictions the stored rows carry on their own:
 
@@ -1041,10 +1077,42 @@ Both are detectable without knowing any of this, by contradictions the stored ro
 
 The second is the cheaper guard, and it needs no database at all: a season that has not started cannot have games played. All seven cached FDO responses carry a 2026-27 `season` block starting between 2026-08-07 and 2026-08-28; four of them report a completed season's totals (PL 760, PD 760, BL1 612, PPL 592) under it.
 
-> [!WARNING]
-> A third of the damage is not recoverable by re-fetching, because the July run **overwrote real data**. `upsert_standing` ends in an unconditional `ON CONFLICT(league_id, season, team_id) DO UPDATE SET position=excluded.position, played=excluded.played, …` — a blank row replaces a complete one without objection. In `premier-league` 2025-26, 17 final-table rows were zeroed on 2026-07-10. Exactly three survived, stamped 2026-06-18: West Ham (18th, 38 played, 39 pts), Burnley (19th, 38, 22), Wolves (20th, 38, 20) — the relegated clubs, absent from the incoming 2026-27 table, so no `ON CONFLICT` ever fired on them. That is what the odd "23 teams, 4 distinct positions" shape in the table above actually is: 20 clobbered rows plus 3 orphaned survivors. Eredivisie and Ligue 1 2025-26 were clobbered outright, all 18 rows each.
+`get_standings` now returns the `season` block alongside the table, and the label is derived from `season.startDate`'s year rather than from the calendar. Two responses are refused outright rather than stored under a guessed label: one whose totals contradict its own season block (`_stale_table_reason` — a future start date with games played, or a `currentMatchday` that cannot account for the games recorded, with one matchday of headroom for postponements), and one carrying no season block at all. Unverifiable is not the same as current.
 
-Nothing is lost permanently — every source match survives (380 finished PL 2025-26 fixtures, 306 each for Eredivisie and Ligue 1), so the tables can be rebuilt by derivation. See §12 for the ordered fix.
+### Fixed: the standings write no longer accepts a downgrade
+
+The mislabelled July table did not merely sit alongside the real one — it **overwrote** it. `upsert_standing` ended in an unconditional `ON CONFLICT(league_id, season, team_id) DO UPDATE SET position=excluded.position, played=excluded.played, …`, so a blank row replaced a complete one without objection. In `premier-league` 2025-26, 17 final-table rows were zeroed on 2026-07-10. Exactly three survived, stamped 2026-06-18: West Ham (18th, 38 played, 39 pts), Burnley (19th, 38, 22), Wolves (20th, 38, 20) — the relegated clubs, absent from the incoming 2026-27 table, so no `ON CONFLICT` ever fired on them. That is what the odd "23 teams, 4 distinct positions" shape above actually was: 20 clobbered rows plus 3 orphaned survivors. Eredivisie and Ligue 1 2025-26 were clobbered outright, all 18 rows each — 53 real rows destroyed in one fetch.
+
+The conflict clause now carries a trailing condition:
+
+```sql
+ON CONFLICT(league_id, season, team_id) DO UPDATE SET
+    position = excluded.position, played = excluded.played, ...
+WHERE excluded.played > 0 OR standings.played = 0
+```
+
+An incoming row emptier than the stored one turns the update into a no-op. A genuinely new pre-season table still writes, because the stored row it meets is also on zero.
+
+### Fixed: the three clobbered 2025-26 tables were rebuilt from match results
+
+Nothing was lost permanently — every source match survived (380 finished PL 2025-26 fixtures, 306 each for Eredivisie and Ligue 1) — so the tables were recoverable arithmetic. `footy derive-standings` (§5) rebuilt them, and while it was at it filled in every other league-season that had results but no table. The 2026-08-09 run wrote 47 tables and declined 2, taking standings from 19 league-seasons (13 ranked) to 63 (60 ranked).
+
+The derivation was cross-checked against real data before being trusted: the stale copy the August fetch left under `premier-league` 2026-27 is the genuine 2025-26 final table, and it is byte-identical to the table derived independently from the 380 match rows — Arsenal 38/85/+44, Man City 38/78/+42, Man Utd 38/71/+19.
+
+> [!WARNING]
+> **Four 2026-27 tables still hold 2025-26 data**, left by the August fetch before the label fix landed: `bundesliga`, `la-liga`, `liga-portugal`, `premier-league`. Unlike the blank tables, these *do* rank, so `league_position` and `opponent_strength` will read them as the current season's table for any 2026-27 fixture analysed before the first real fetch of the new season lands. Each is a duplicate — the correct 2025-26 label now holds an equal-or-better copy in all four cases — so they can be deleted safely once you decide to:
+> ```sql
+> DELETE FROM standings WHERE season='2026-27' AND league_id IN (
+>   SELECT id FROM leagues WHERE slug IN
+>     ('bundesliga','la-liga','liga-portugal','premier-league'));
+> ```
+> Back up first. A normal in-season `footy fetch` overwrites them with the real 2026-27 table anyway, now that the incoming label is verified.
+
+### Watch: some clubs are still stored under two rows
+
+`derive-standings` declines a season where any pair of teams never met once the fixture list is exhausted, and that check surfaced a team-identity gap the canonicalisation work missed. `CA Osasuna` (id 860) and `Osasuna` (id 38055) are one club under two `teams` rows, because `canonical_key` strips `fc`, `cf`, `cd` and `as` as corporate noise but not `ca`. Every Osasuna fixture is therefore stored twice — once from the CSV spelling, once from football-data.org — and La Liga 2025-26 derives 21 teams with 19 of them on 40 games of a 38-game season.
+
+The same shape appears in Bundesliga 2025-26 (`1. FSV Mainz 05` / `Mainz`), Liga Portugal 2025-26 (six pairs), Scottish Premiership 2024-25, Süper Lig 2024-25, and Eliteserien 2022/2023/2024. Those seasons are skipped by `derive-standings` rather than rebuilt wrongly, and their form, H2H and venue factors read only half the club's history until the aliases are added to `src/team_names.py`. Nothing is lost — the fix is an alias entry plus a dedupe pass, not a re-fetch.
 
 ### Fixed: `--seasons` anchoring in pre-season
 
@@ -1093,11 +1161,11 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 | `match_stats` rows | 35,822 |
 | — with `expected_goals` | **44** |
 | — with `possession` | 100 |
-| Standings rows | 338 (19 league-seasons) |
-| — league-seasons with a usable ranking | **13 of 19** |
+| Standings rows | 1,140 (63 league-seasons) |
+| — league-seasons with a usable ranking | **60 of 63** |
 | Team-season stats | 86 |
 | Settled predictions | 13,408 |
-| Tests | 210 passing |
+| Tests | 245 passing |
 
 ---
 
@@ -1125,7 +1193,7 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 
 ⚠️ **`xg_quality` contributes nothing** until `api_football_id` is backfilled or new-season fixtures accumulate.
 
-⚠️ **`league_position` and `opponent_strength` at ~40% coverage** — fetch standings regularly to improve them, and check `footy status` for league-seasons with no usable table.
+⚠️ **`league_position` and `opponent_strength`** now read a derived table for every completed league-season, but the nine seasons with a split club identity (§10) still have none, and the 2026-27 tables are empty until matchday 1. Check `footy status` for league-seasons with no usable table.
 
 ⚠️ **Eliteserien (3 seasons) and Saudi Pro League (1 season)** are materially thinner than the rest.
 
@@ -1146,6 +1214,7 @@ No CSV source exists, so it holds only the 306 matches fetched via API. Its form
 
 - [ ] `footy load-history --seasons 1` run (anchors to the completed season automatically)
 - [ ] `python migrations/run.py` run — schema current
+- [ ] `footy derive-standings` run after the history load — rebuilds tables for any season that gained results
 - [ ] API keys valid, quota available (`footy status`)
 - [ ] `.env` configured with `VALUE_MIN_ODDS=1.32`
 - [ ] `footy calibrate` run on the updated data
@@ -1162,19 +1231,16 @@ This section answers: what's missing, what to fix next, and which improvements g
 
 ### What the App Is Now (August 2026)
 
-**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 210 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
+**Analytically complete for systematic betting.** The 16-factor engine generates meaningful picks from day one. The workflow is stable — Thursday fetch, Friday research, Saturday slip, Monday record — and 245 tests confirm the core logic holds. You can build 50-leg parlays with confidence tiers that match their hit rates (HIGH 80.3%, MEDIUM 67.0%, Brier 0.2037).
 
-**Data-integrity sound.** Team canonicalisation (325 clubs, no fragmentation), 11,609 duplicates removed, fixture-identity unique index, `--seasons` anchoring fixed. Repeated `load-history` runs no longer inflate the database.
+**Data-integrity sound.** Team canonicalisation (325 clubs, no fragmentation), 11,609 duplicates removed, fixture-identity unique index, `--seasons` anchoring fixed. Repeated `load-history` runs no longer inflate the database. The standings write path — the last live destructive bug — is guarded, labelled from the API response rather than the calendar, and the tables it destroyed have been rebuilt.
 
 **Calibration functional.** Probability shrinkage tuned (1X2 30%, Poisson λ 25%, Dixon-Coles correction), DNB formula fixed, WEH capped at 0.82. The system self-improves through `record` → `accuracy` → `calibrate`.
 
-**Missing three things that matter:**
+**Missing two things that matter:**
 
 1. **Bookmaker odds** — can't measure true edge yet
-2. **Derived standings** — 46 league-seasons at 0% instead of 100%, solvable at zero API cost
-3. **xG activation** — blocked by missing `api_football_id` on 17,561 historical rows
-
-**And one thing actively broken:** standings fetches are labelled by the calendar rather than by the season the API returned, and the write path lets a blank table overwrite a complete one. This has already destroyed 53 real standings rows. It is ranked first below because it is the only item on this list that is still causing damage — every fetch during a season turnover can lose more.
+2. **xG activation** — blocked by missing `api_football_id` on 17,561 historical rows
 
 Everything else on the "Phase E roadmap" is either dead code (events/predictions endpoints exist, never called), marginal gains (referee bias would help 6,692/19,484 matches — 34% — but only for the 55 refs with 30+ matches), or genuinely future work (injuries/lineups require live pre-match data the free tier may not provide).
 
@@ -1182,29 +1248,17 @@ Everything else on the "Phase E roadmap" is either dead code (events/predictions
 
 ### The Three Gaps That Matter — Ranked by Impact
 
-#### 0. **Stop the Standings Clobber** — A Live Bug, Not a Gap
+#### 0. ~~**Stop the Standings Clobber**~~ — Done, 2026-08-09
 
-**What it is:** Two defects in the standings write path, described with evidence in §10. Standings are labelled from `get_season_label()` (today's date) while the response's own `season` block is discarded, so during a turnover the label and the contents disagree by a season. And `upsert_standing` ends in an unconditional `DO UPDATE SET`, so the mislabelled blank table silently overwrites the real one.
+**What it was:** two defects in the standings write path, described with evidence in §10. Standings were labelled from `get_season_label()` (today's date) while the response's own `season` block was discarded, so during a turnover the label and the contents disagreed by a season. And `upsert_standing` ended in an unconditional `DO UPDATE SET`, so the mislabelled blank table silently overwrote the real one — 53 rows destroyed on one fetch.
 
-**Why it comes first:** everything else here is coverage you don't have yet. This is coverage you *had* and lost — 17 rows in `premier-league` 2025-26, 18 each in Eredivisie and Ligue 1, on one fetch. It recurs every July/August, and each `footy fetch` during a turnover is another chance to lose more. Fix the write before rebuilding anything, or the rebuild is the next thing overwritten.
+**What landed**, in dependency order — the write guard first, so the rebuild could not be the next thing overwritten:
 
-**The fix, in dependency order:**
+1. **The write is guarded.** `upsert_standing` carries a trailing `WHERE excluded.played > 0 OR standings.played = 0`, which turns the update into a no-op when the incoming row is emptier than the stored one.
+2. **The label comes from the response.** `get_standings` returns the `season` block alongside the table, and `fetch_and_store_standings` derives the label from `season.startDate`'s year. A response whose totals contradict its own season block, or which carries no season block, is declined under either label rather than guessed at.
+3. **The lost tables were rebuilt** by `footy derive-standings` (§5) — 47 written, 2 declined, taking ranked league-seasons from 13 to 60.
 
-1. **Guard the write** (~15 lines, `src/database.py:1031`). Make the conflict clause refuse a downgrade — do not let a row with `played = 0` replace one with `played > 0`. SQLite expresses this directly:
-   ```sql
-   ON CONFLICT(league_id, season, team_id) DO UPDATE SET
-       position = excluded.position, played = excluded.played, ...
-   WHERE excluded.played > 0 OR standings.played = 0
-   ```
-   A trailing `WHERE` on an upsert turns the overwrite into a no-op when the incoming row is emptier than the stored one. This alone stops the bleeding and is worth committing on its own.
-
-2. **Label from the response** (~20 lines, `src/fetchers/football_data_org.py:235`). Return the `season` block alongside the table instead of discarding it, and derive the label from `season.startDate`'s year rather than from the calendar. While there, assert the invariant that makes staleness self-announcing: **a season whose `startDate` is in the future cannot have `playedGames > 0`.** When it does, the response is stale — log it and decline the write rather than storing it under either label.
-
-3. **Rebuild what was lost** — this is where derived standings (below) earns its keep, and the reason it is worth doing sooner than its own impact score suggests. The six damaged league-seasons all retain their source matches.
-
-**Verification:** the contradictions in §10 are queries, so they double as tests. After the fix, no league-season should have `sum(played) > 0` alongside zero stored FINISHED matches. Note that the related "team holds a row for a season it never played in" check is **not** a reliable detector on its own — Serie A 2025-26 trips it for an unrelated reason (Fiorentina and Genoa have final-table rows but missing match rows), so it flags real mislabels and ordinary gaps alike.
-
-**Cost:** half a day for steps 1–2, plus whatever step 3 costs from the entry below.
+**Verification.** Query B (mixed `fetched_at` within one league-season — the clobber signature) now returns nothing. Query A returns four rows, all `2026-27` tables holding 2025-26 data left by the August fetch; they rank, so they are read as current, and §10 carries the `DELETE` that clears them. Note that the related "team holds a row for a season it never played in" check is **not** a reliable detector on its own — Serie A 2025-26 trips it for an unrelated reason (Fiorentina and Genoa have final-table rows but missing match rows), so it flags real mislabels and ordinary gaps alike.
 
 ---
 
@@ -1233,28 +1287,17 @@ Everything else on the "Phase E roadmap" is either dead code (events/predictions
 
 ---
 
-#### 2. **Derived Standings** — 65% → 100% Coverage at Zero API Cost
+#### 2. ~~**Derived Standings**~~ — Done, 2026-08-09
 
-**What it is:** Compute league tables from match results already in the database, rather than fetching them from API-Football.
+**What it is:** `footy derive-standings` (§5) computes league tables from the match results already stored rather than fetching them. Zero API cost — every input was already in the database.
 
-**Why it matters:** `league_position` and `opponent_strength` sit at ~40% coverage. Standings exist only for the league-seasons fetched from an API, and six of those hold no usable ranking. The remaining 46 league-seasons have complete match results but no table at all. This weakens two factors — 12% of the total weight — on roughly 60% of your fixtures.
+**Why it mattered:** `league_position` and `opponent_strength` sat at ~40% coverage. Standings existed only for the 19 league-seasons some API had been asked for, six of which held no usable ranking, while 46 league-seasons had complete match results and no table at all. Two factors carrying 12% of the total weight read nothing on roughly 60% of fixtures.
 
-**What it buys you:**
-- `league_position` and `opponent_strength` at **100% coverage** for every completed league-season
-- Eliminates one "data quality: MEDIUM" cause
-- Zero API cost — all inputs already in the database
+**What landed:** 47 tables written on 2026-08-09, 2 declined; standings went from 19 league-seasons (13 ranked) to 63 (60 ranked). `compute_standings` fills every column a fetched table does, the `form` string included — it sorts matches by date and takes the last five, so the caveat this entry used to carry about missing form no longer applies. Nine league-seasons are still not derivable because a club is stored under two `teams` rows (see §10, "some clubs are still stored under two rows"); those are declined rather than rebuilt wrongly.
 
-**Implementation cost:**
-- **Schema:** Standings table already exists with the right columns (played, won, drawn, lost, GF, GA, GD, points, home/away splits).
-- **Function:** `compute_standings(league_id, season)` — query all FINISHED matches, group by team, sum W/D/L and goals, rank by points then GD. ~80 lines.
-- **CLI proposal:** A `derive-standings` command would run for all league-seasons missing standings rows — and for the six that hold rows with no usable ranking, which the ranking check now makes visible in `footy status`. Not yet implemented.
-- **Time:** 1 day dev + test.
+**What it bought:** both factors now read a real table for every completed league-season in the database, which is mostly calibration quality rather than this week's picks — each factor reads the fixture's own season, so a 2026-27 fixture was never affected by a missing 2023-24 table. What improves is the historical record the calibrator learns from. It also recovered the three tables the clobber destroyed, which is why item 0 depended on it.
 
-**Caveat:** Derived tables lack the `form` string (last 5 results as "WWDLW") because API-Football computes that chronologically mid-season. You can derive it too by sorting matches by date — adds 20 lines but rarely changes a pick (form is also in `momentum` and `recent_form` factors).
-
-**Recommendation:** Worth doing, and **now doing double duty**. Its own payoff is calibration quality rather than this week's picks — both factors read the fixture's own season, so a 2026-27 fixture is unaffected by a missing 2023-24 table, and what improves is the historical record the calibrator learns from (46 league-seasons covering the bulk of your finished matches). But it is also the only way to recover the six tables the clobber destroyed, which is why item 0 above depends on it. Do the write guard first, then this, then derive.
-
-**One caution when rebuilding:** derive into the season the matches actually belong to, and let the ranking check confirm the result — a derived table that comes out with every team at position 1 means the match query returned nothing, and writing it would reproduce the exact condition §10 describes.
+**What is left:** the nine identity-split seasons, unblocked by an alias entry in `src/team_names.py` plus a dedupe pass. Small, and worth doing before the next calibration run.
 
 ---
 
@@ -1359,7 +1402,7 @@ Use this to decide:
 
 ### Final Recommendation
 
-**This week:** Check the model's shortlist against real SportyBet odds. **This season:** Run it, track it, derive standings when you want better calibration, and learn whether you find edge. The model is ready. The question is whether **your betting market is beatable with this approach**. Odds integration (manual at first) is how you find out.
+**This week:** Check the model's shortlist against real SportyBet odds. **This season:** Run it, track it, and learn whether you find edge. The model is ready. The question is whether **your betting market is beatable with this approach**. Odds integration (manual at first) is how you find out.
 
 ---
 
@@ -1487,6 +1530,29 @@ sqlite3 footy.db "SELECT league_id, season, home_team_id, away_team_id, date(dat
 
 An empty result means no duplicates remain.
 
+### `footy status` reports league-seasons with no usable ranking
+
+Run `footy derive-standings` — it rebuilds tables from the match results already stored, at no API cost. Three cases it will not fix, and each says so:
+
+- **The season has not started.** No finished matches, nothing to derive. The 2026-27 tables fill in after matchday 1.
+- **A club is stored under two `teams` rows.** The derivation would be wrong in every position, so it declines. Check with the query in Section 10; the fix is an alias in `src/team_names.py`.
+- **A table is already stored and already ranks.** Pass `--force` if you genuinely want the derived one instead.
+
+### `footy derive-standings` says a season is complete yet teams never met
+
+That is the split-identity check. Two `teams` rows for one club can never play each other, so the pair shows up as never having met once the fixture list is exhausted. Confirm by looking for near-duplicate names in that league:
+
+```bash
+sqlite3 footy.db "SELECT id, name, canonical_key FROM teams \
+  WHERE canonical_key LIKE '%osasuna%'"
+```
+
+Two rows means the club is split. See Section 10 for the full list and the fix.
+
+### `footy fetch` says a standings response was declined
+
+The response contradicted itself — a season block starting in the future with games already played, or a `currentMatchday` too low to account for the games recorded. That is a stale table, and storing it under either label would do damage, so it is refused. Re-fetch after the new season's first matchday; in the meantime `footy derive-standings` covers completed seasons.
+
 ### `footy load-history --seasons 1` loaded nothing
 
 In pre-season this used to request an unplayed season and get an empty CSV. Fixed by anchoring to the last season actually played. If a specific league still returns nothing, its CSV may genuinely be unavailable — Eliteserien returns 300/404 (see Section 10).
@@ -1557,5 +1623,5 @@ The CLI is not a development tool — it is the final product. `footy report` is
 ---
 
 *Guide version: August 2026 · Footy Predict v1.0*
-*210 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
+*245 tests passing · HIGH: 80.3% · MEDIUM: 67.0% · Brier: 0.2037*
 *12 leagues · 15 market families · 16 factors · 21,848 matches (19,484 finished) · 325 teams*

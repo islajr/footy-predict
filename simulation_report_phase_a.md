@@ -222,6 +222,18 @@ ones running short of data, and they are the actionable gaps:
 | `league_position` | 64% (128/200) | Standings absent for some league-seasons in the sample window. |
 | `opponent_strength` | 67.5% (135/200) | Derived from standings, so it inherits the same gap. |
 
+> **Addendum, 2026-08-09.** The two standings figures are stale as a measurement of
+> the current database, though they stand as what the Aug 5 run saw. `footy
+> derive-standings` has since rebuilt league tables from stored match results —
+> 47 written, 2 declined — taking standings from 19 league-seasons (13 with a
+> usable ranking) to 63 (60 ranked). 19,000 of the 19,484 finished matches now sit
+> in a league-season with a ranked table, against roughly two thirds before. Both
+> factors should measure substantially higher on the next simulation run; these
+> rows are left as measured rather than adjusted by inference. The remaining gap
+> is nine league-seasons where one club is stored under two `teams` rows
+> (`CA Osasuna` / `Osasuna` and similar), which `derive-standings` declines rather
+> than rebuild wrongly.
+
 ### Why xG is still at zero
 
 `footy fetch --stats` backfills `match_stats` only for matches that carry an

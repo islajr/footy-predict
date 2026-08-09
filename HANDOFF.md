@@ -1,16 +1,48 @@
 # Handoff — Standings Integrity
 
-**Written 2026-08-09.** Live working notes for whoever picks this up next, including a
-future session of me. `cli_guide.md` §10 and §12 are the user-facing account of the same
-work; this file carries the operational detail that does not belong in a user guide —
-exact queries, exact row counts, what was ruled out and why.
+**Written 2026-08-09. All three tasks landed the same day.** Live working notes for whoever
+picks this up next, including a future session of me. `cli_guide.md` §10 and §12 are the
+user-facing account of the same work; this file carries the operational detail that does
+not belong in a user guide — exact queries, exact row counts, what was ruled out and why.
 
-Delete this file once the three tasks below are done and the invariant queries come back
-clean. It is a work order, not documentation.
+**Status: the work order is discharged; one data decision is left open.** Query B comes
+back clean. Query A still returns four rows — `bundesliga`, `la-liga`, `liga-portugal` and
+`premier-league` 2026-27, holding 2025-26 data left by the August fetch *before* the label
+fix landed. They are residue, not recurrence: nothing in the current code can produce
+another. Because they rank, both standings factors will read them as this season's table
+until the first real 2026-27 fetch lands. Clearing them is a delete of live data and was
+left for the user to authorise — the query is in `cli_guide.md` §10. Delete this file once
+that decision is made.
 
 ---
 
-## Where things stand
+## What landed
+
+| Task | Commit | Outcome |
+|---|---|---|
+| 1. Guard the write | see `git log --oneline -- src/database.py` | `WHERE excluded.played > 0 OR standings.played = 0` |
+| 2. Label from the response | `src/fetchers/football_data_org.py` | label from `season.startDate`; stale and season-less responses declined |
+| 3. Rebuild by derivation | `src/standings.py`, `footy derive-standings` | 47 tables written, 2 declined; standings 19 league-seasons (13 ranked) → 63 (60 ranked) |
+
+245 tests pass, up from 210 at the time this file was written.
+
+Two things turned up that were not in the original diagnosis, both recorded in
+`cli_guide.md` §10:
+
+- **The prune was load-bearing.** Writing 20 derived rows over `premier-league` 2025-26's
+  23 would have left Coventry, Hull and Ipswich at position 1, so the repaired table would
+  still have failed `standings_are_ranked` and the whole exercise would have accomplished
+  nothing. `Database.delete_standings_except` is what makes the rebuild take.
+- **Nine league-seasons are undrivable because a club is stored under two `teams` rows.**
+  `CA Osasuna` (id 860) and `Osasuna` (id 38055) are one club — `canonical_key` strips
+  `fc`, `cf`, `cd` and `as` but not `ca`. Also `1. FSV Mainz 05` / `Mainz`, six pairs in
+  Liga Portugal 2025-26, plus Scottish Premiership 2024-25, Süper Lig 2024-25 and
+  Eliteserien 2022/2023/2024. Needs an alias entry in `src/team_names.py` and a dedupe
+  pass — its own change, not this one.
+
+---
+
+## Where things stood when this was written
 
 `league_position` (7.5% weight) and `opponent_strength` (4.5%) read the league table.
 Both used to check whether standings *existed* without checking whether they *ranked
@@ -20,10 +52,10 @@ and drags the aggregate toward neutral.
 
 That is fixed. `standings_are_ranked()` in `src/analysis/factors.py` now gates both
 factors: positions must be distinct, and at least one match must have been played. Six of
-19 stored league-seasons fail it, `footy status` names them, and 210 tests pass.
+19 stored league-seasons failed it, `footy status` names them, and 210 tests passed.
 
 **The fix stops the engine trusting bad data. It does not stop the data going bad.** That
-is what remains, and it is still happening.
+was what remained, and it is what the three tasks below addressed.
 
 ---
 
@@ -90,9 +122,10 @@ plus 3 orphaned survivors from the previous season's table.
 
 ---
 
-## Do these three, in this order
+## The three tasks, as specified — all done
 
-Order matters: fix the write before rebuilding, or the rebuild becomes the next casualty.
+Order mattered: fix the write before rebuilding, or the rebuild becomes the next casualty.
+Kept below because the reasoning explains the shape of the code that landed.
 
 ### 1. Guard the write — `src/database.py:1031`
 

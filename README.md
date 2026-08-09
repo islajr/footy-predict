@@ -18,7 +18,7 @@ Runs entirely on your laptop with SQLite. No hosting required.
 | **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, rationale, risk flags, and 4 alternatives. Designed to be read, not blindly followed |
 | **Quota-Aware Fetching** | `footy fetch-upcoming` stays within the 100 req/day free API tier |
 | **Accuracy Tracking** | `footy record` + `footy accuracy` + `footy calibrate` — a self-improving loop across the season |
-| **194 Tests** | Pytest suite covering factors, markets, settlement logic, calibration |
+| **245 Tests** | Pytest suite covering factors, markets, settlement logic, calibration, standings derivation |
 
 ---
 
@@ -147,6 +147,7 @@ footy status                                # API quota, DB stats, cache info
 footy fetch [--league SLUG] [--stats]       # fetch fixtures, standings, stats
 footy fetch-upcoming [--days N]             # quota-aware weekend fetch
 footy load-history [--league SLUG] [--seasons N]   # bulk-load historical CSVs
+footy derive-standings [-l SLUG] [-s SEASON] [--all] [--dry-run]  # rebuild tables from results
 footy analyze matchweek [--league SLUG]    # full analysis, all upcoming fixtures
 footy analyze match "Team A vs Team B"     # single-match deep dive
 footy picks [-c HIGH] [-m MARKET] [-o 1.32]        # all picks, filterable
@@ -177,8 +178,10 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 - ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop
 - ✅ Data integrity: team canonicalisation (325 clubs), 11,609 duplicate rows removed, fixture-identity unique index
-- ✅ 210 tests passing
+- ✅ Standings write guarded against downgrade, labelled from the API response, and rebuildable offline via `footy derive-standings` — 60 league-seasons ranked, up from 13
+- ✅ 245 tests passing
 - ⚠️ xG quality factor blocked at 0% — FDO-sourced rows lack `api_football_id`; resolves as 2026/27 fixtures arrive
+- ⚠️ Nine league-seasons have a club stored under two rows (`CA Osasuna` / `Osasuna` and similar) — needs an alias entry in `src/team_names.py`
 
 ### Phase E (After Season Start)
 - 📋 Bookmaker odds integration (true edge detection)
@@ -213,8 +216,8 @@ python /path/to/simulate_historical.py
 - **[Architecture](architecture.md)** — system design and module layout
 - **[Codebase Map](CODEBASE.md)** — file-by-file reference
 - **[Simulation Report](simulation_report_phase_a.md)** — accuracy measurements, calibration history, factor coverage
-- **[Handoff — Standings Integrity](HANDOFF.md)** — active work order: a standings write path that mislabels seasons and lets blank tables overwrite real ones. Temporary; delete when its three tasks are done.
+- **[Handoff — Standings Integrity](HANDOFF.md)** — closed work order: the standings write path that mislabelled seasons and let blank tables overwrite real ones. All three tasks landed 2026-08-09; temporary, delete once the four residual 2026-27 tables it names are cleared.
 
 ---
 
-*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 210 tests*
+*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 245 tests*

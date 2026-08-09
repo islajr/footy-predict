@@ -18,6 +18,7 @@ footy-predict/
 ├── src/
 │   ├── config.py               # Registry of leagues, markets, and default weights
 │   ├── database.py             # Schema definitions and database operations (DAL)
+│   ├── standings.py            # League tables derived from stored match results
 │   ├── main.py                 # Core entry point (FastAPI server bootstrap)
 │   ├── cli.py                  # Click command-line interface commands
 │   ├── fetchers/
@@ -235,6 +236,14 @@ Queries the database for scheduled or in-progress matches within a date range.
 *   **Returns**: A list of match dictionaries, containing team names, IDs, dates, statuses, and scores.
 *   **Internal Operations**: If `from_date` and `to_date` are omitted, the method defaults to a window from 1 day ago to 7 days in the future. It joins the `matches` table with the `teams` table to include the home and away team display names.
 
+#### `Database.upsert_standing(self, league_id: int, season: str, team_id: int, position: int, played: int = 0, ...) -> None`
+Inserts or updates one row of a league table.
+*   **Internal Operations**: The conflict clause ends in `WHERE excluded.played > 0 OR standings.played = 0`, so a blank incoming row cannot overwrite a complete stored one. Without that guard a single pre-season fetch destroyed 53 real rows; the trailing `WHERE` turns the update into a no-op instead.
+
+#### `Database.delete_standings_except(self, league_id: int, season: str, keep_team_ids: list[int]) -> int`
+Drops standings rows for teams outside `keep_team_ids`, returning the number removed. Returns 0 without touching the table when `keep_team_ids` is empty.
+*   **Why it exists**: rewriting a table has to replace rather than merge. Premier League 2025-26 held 23 rows for a 20-team competition — three relegated clubs left by an earlier fetch — and writing 20 correct rows over that would leave three stragglers at position 1, so the repaired table would still fail `standings_are_ranked` and the rebuild would accomplish nothing.
+
 #### `Database.get_accuracy_stats(self, market: str | None = None, league_id: int | None = None) -> dict[str, Any]`
 Computes the historical prediction accuracy.
 *   **Parameters**:
@@ -295,6 +304,36 @@ A utility for downloading and importing historical match data from football-data
     *   `download_season_csv(self, league_slug: str, season_year: int) -> Path`: Downloads the CSV file for a given league and season to the local directory `data/historical/`.
     *   `parse_csv(self, csv_path: Path, league_slug: str) -> list[dict]`: Reads the CSV using pandas and maps the column names (e.g., `FTHG` to goals scored, `HST` to shots on target, `B365H` to betting odds) to a normalized dictionary format.
     *   `load_season(self, league_slug: str, season_year: int) -> int`: Downloads the CSV, parses the records, maps participating team names to database IDs, and upserts the matches and match statistics. Returns the count of imported matches.
+
+---
+
+### E. Derived League Tables (`src/standings.py`)
+
+A fifth data source that touches no network: it reconstructs league tables from the `matches` rows already stored. Two jobs — coverage, because standings exist only for the league-seasons some API was asked for while the rest have complete results and no table, and repair, because a mislabelled pre-season fetch overwrote real tables whose source matches all survived.
+
+#### `compute_standings(db: Database, league_id: int, season: str) -> list[dict[str, Any]]`
+Aggregates every FINISHED match with non-NULL scores into a ranked table.
+*   **Returns**: one row per team appearing in at least one finished fixture, ordered by position, carrying points, W/D/L, goals for/against, goal difference, the home and away splits, and the last-five `form` string oldest-first. A team with no finished match is **absent** rather than present on zero — the table describes what was played.
+*   **Ranking**: points, then goal difference, then goals scored, then name. Several leagues break ties on head-to-head instead, so two level teams can sit a place either way of their official order; the factors reading this compare position gaps and points gaps, where that is immaterial.
+
+#### `incoherent_reason(db: Database, league_id: int, season: str, table: list[dict]) -> str | None`
+Returns why a derived table cannot be trusted, or `None` if it can.
+*   **The check**: once a season has no fixtures left to play, every pair of teams in it must have met at least once. A club stored under two `teams` rows is precisely the pair that never can.
+*   **Why not played counts**: unequal totals are the more obvious symptom but the wrong test. Split-format leagues (the Belgian Pro League's championship and relegation playoffs) legitimately finish a season with teams on different totals — 35 to 40 in 2025-26. The pairing test clears those and still catches every identity split.
+*   Mid-season nothing is checked; pairs that have not met yet are the normal state of an incomplete fixture list.
+
+#### `store_derived_standings(db: Database, league_id: int, season: str, force: bool = False) -> int`
+Derives a table and writes it, returning rows written or 0 if declined. Three refusals, all logged:
+*   The derivation fails `standings_are_ranked` — writing it recreates the every-team-at-position-1 condition the repair exists to remove. **Not overridable**; there is no reading under which that write is wanted.
+*   The match set is incoherent per `incoherent_reason`. Overridable by `force`.
+*   A table is already stored **and** already ranks. That is API data carrying a form string and splits the derivation only approximates, and it may cover teams whose matches were never stored, so replacing it is a downgrade and must be asked for. Overridable by `force`.
+
+The write replaces rather than merges: `delete_standings_except` prunes rows for teams outside the derived table first.
+
+#### `derivable_league_seasons(db: Database) -> list[dict[str, Any]]`
+Every league-season with finished matches, newest first, each with `league_id`, `slug`, `season`, `finished`, `stored`, and `needs_table` (`not standings_are_ranked(stored)`). This is what `footy derive-standings` iterates.
+
+> The season a table belongs to is the season its **matches** carry. Callers must not take it from an existing standings row — that label is the thing under suspicion.
 
 ---
 
@@ -475,6 +514,7 @@ The Command Line Interface (CLI) is built using Click, providing command-line ac
 *   `serve`: Starts the local FastAPI web server using Uvicorn.
 *   `fetch`: Synchronizes current data for enabled leagues.
 *   `load-history`: Imports historical statistics from downloaded CSV files.
+*   `derive-standings`: Rebuilds league tables by aggregating stored match results. No API cost.
 *   `status`: Displays database statistics, cache efficiency, and API quota usage.
 *   `analyze matchweek`: Generates prediction reports for upcoming matches.
 *   `analyze match "Home vs Away"`: Generates a factor analysis report for a specific fixture.
