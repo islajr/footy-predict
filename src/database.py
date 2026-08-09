@@ -1132,6 +1132,33 @@ class Database:
             ).fetchall()
             return self._rows_to_dicts(rows)
 
+    def delete_standings_except(
+        self, league_id: int, season: str, keep_team_ids: list[int]
+    ) -> int:
+        """Drop standings rows for teams not in ``keep_team_ids``. Returns rows removed.
+
+        A rewritten table must replace the old one, not merge with it. The
+        Premier League 2025-26 table held 23 rows for a 20-team competition —
+        relegated clubs left behind by an earlier season's fetch. Writing 20
+        derived rows over that leaves three at position 1, which is a
+        duplicate position, which means ``standings_are_ranked`` still fails
+        and the repair silently accomplishes nothing.
+
+        Called only by the derivation path, which knows its team list is the
+        complete one. A partial fetch must not use this.
+        """
+        if not keep_team_ids:
+            return 0
+        placeholders = ",".join("?" * len(keep_team_ids))
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""DELETE FROM standings
+                    WHERE league_id=? AND season=?
+                      AND team_id NOT IN ({placeholders})""",
+                (league_id, season, *keep_team_ids),
+            )
+            return cursor.rowcount
+
     def get_matches_without_stats(self, league_id: int, limit: int = 20) -> list[dict[str, Any]]:
         """Return FINISHED matches that have no match_stats rows yet, newest first.
 
