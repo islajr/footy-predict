@@ -81,6 +81,10 @@ html, [data-theme="dark"] {
     --color-purple-muted: rgba(191, 90, 242, 0.12);
     --color-teal: #32D2C9;
     --color-teal-muted: rgba(50, 210, 201, 0.12);
+    --color-cyan: #00f0ff;
+    --color-cyan-muted: rgba(0, 240, 255, 0.15);
+    --color-magenta: #ff007f;
+    --color-magenta-muted: rgba(255, 0, 127, 0.15);
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -1093,14 +1097,14 @@ select option {
 }
 
 .factor-bar-home {
-    background-color: var(--color-green);
-    margin-left: 50%;
+    background-color: var(--color-cyan);
+    margin-right: 50%;
+    margin-left: auto;
 }
 
 .factor-bar-away {
-    background-color: var(--color-red);
-    margin-left: auto;
-    margin-right: 50%;
+    background-color: var(--color-magenta);
+    margin-left: 50%;
 }
 
 .factor-val {

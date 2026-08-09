@@ -60,27 +60,28 @@ def _bar(value: float, width: int = 12) -> str:
 def _bar_directional(score: float, width: int = 14) -> Text:
     """Rich Text bar with directional display for factor scores (-1..+1).
 
-    Negative scores lean left (Away-favoured, shown in magenta);
-    positive scores lean right (Home-favoured, shown in cyan).
+    Positive scores lean left (Home-favoured, shown in cyan);
+    negative scores lean right (Away-favoured, shown in magenta).
     A midpoint marker divides the bar.
     """
     half = width // 2
     txt = Text()
     if score >= 0:
         filled = int(round(score * half))
-        txt.append("░" * half, style="dim")
-        txt.append("│", style="bold white")
-        txt.append("█" * filled, style="cyan")
         txt.append("░" * (half - filled), style="dim")
+        txt.append("█" * filled, style="cyan")
+        txt.append("│", style="bold white")
+        txt.append("░" * half, style="dim")
         txt.append(f"  +{score:.2f}", style="bold cyan")
     else:
         filled = int(round(abs(score) * half))
-        txt.append("░" * (half - filled), style="dim")
-        txt.append("█" * filled, style="magenta")
-        txt.append("│", style="bold white")
         txt.append("░" * half, style="dim")
+        txt.append("│", style="bold white")
+        txt.append("█" * filled, style="magenta")
+        txt.append("░" * (half - filled), style="dim")
         txt.append(f"  {score:.2f}", style="bold magenta")
     return txt
+
 
 
 def _bar_colored(value: float, width: int = 12) -> Text:
@@ -325,7 +326,7 @@ class ReportFormatter:
             padding=(0, 1),
         )
         factor_table.add_column("Factor", style="bold", min_width=22)
-        factor_table.add_column("Score  [dim cyan]← Away   Home →[/dim cyan]", min_width=32)
+        factor_table.add_column("Score  [dim cyan]← Home[/dim cyan]   [dim magenta]Away →[/dim magenta]", min_width=32)
         factor_table.add_column("Conf", justify="right", style="dim")
         factor_table.add_column("Wt", justify="right", style="dim")
 

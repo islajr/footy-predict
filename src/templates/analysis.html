@@ -36,14 +36,14 @@
 
             <!-- Team names -->
             <div class="match-teams">
-                {{ a.home_team }} vs {{ a.away_team }}
+                <span style="color: var(--color-cyan);">{{ a.home_team }}</span> <span style="color: var(--text-tertiary);">vs</span> <span style="color: var(--color-magenta);">{{ a.away_team }}</span>
             </div>
 
             <!-- Meta details -->
             <div class="match-meta">
                 <span class="text-sm">{{ a.match_date }}</span>
-                <span class="text-bold" style="color: {% if a.overall_home_score > 0.1 %}var(--color-green){% elif a.overall_home_score < -0.1 %}var(--color-red){% else %}var(--text-secondary){% endif %};">
-                    Bias: {{ "%.2f"|format(a.overall_home_score) }}
+                <span class="text-bold" style="color: {% if a.overall_home_score > 0.1 %}var(--color-cyan){% elif a.overall_home_score < -0.1 %}var(--color-magenta){% else %}var(--text-secondary){% endif %};">
+                    Bias: {{ "%+.2f"|format(a.overall_home_score) }}
                 </span>
             </div>
 
