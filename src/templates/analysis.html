@@ -36,13 +36,13 @@
 
             <!-- Team names -->
             <div class="match-teams">
-                <span style="color: var(--color-home, #1B66C9);">{{ a.home_team }}</span> <span style="color: var(--text-tertiary);">vs</span> <span style="color: var(--color-away, #B8144C);">{{ a.away_team }}</span>
+                <span style="color: var(--color-home);">{{ a.home_team }}</span> <span style="color: var(--text-tertiary);">vs</span> <span style="color: var(--color-away);">{{ a.away_team }}</span>
             </div>
 
             <!-- Meta details -->
             <div class="match-meta">
                 <span class="text-sm">{{ a.match_date }}</span>
-                <span class="text-bold" style="color: {% if a.overall_home_score > 0.1 %}var(--color-home, #1B66C9){% elif a.overall_home_score < -0.1 %}var(--color-away, #B8144C){% else %}var(--text-secondary){% endif %};">
+                <span class="text-bold" style="color: {% if a.overall_home_score > 0.1 %}var(--color-home){% elif a.overall_home_score < -0.1 %}var(--color-away){% else %}var(--text-secondary){% endif %};">
                     Bias: {{ "%+.2f"|format(a.overall_home_score) }}
                 </span>
             </div>
