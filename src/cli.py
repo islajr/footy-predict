@@ -368,6 +368,95 @@ def load_history(ctx: click.Context, league: str | None, seasons: int) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════
+#  derive-standings — Rebuild tables from stored results
+# ═══════════════════════════════════════════════════════════════
+
+@cli.command("derive-standings")
+@click.option("--league", "-l", default=None, help="League slug. Omit for every league.")
+@click.option("--season", "-s", default=None, help="Season label, e.g. 2025-26. Omit for all.")
+@click.option("--all", "include_ranked", is_flag=True,
+              help="Include league-seasons that already have a usable ranking.")
+@click.option("--force", is_flag=True,
+              help="Write even where the table looks wrong or already ranks.")
+@click.option("--dry-run", is_flag=True, help="Show what would be written and stop.")
+@click.pass_context
+def derive_standings(
+    ctx: click.Context, league: str | None, season: str | None,
+    include_ranked: bool, force: bool, dry_run: bool,
+) -> None:
+    """Rebuild league tables from stored match results. Uses no API quota.
+
+    Targets league-seasons with finished matches whose standings are missing
+    or rank nothing — including the six a blank pre-season fetch overwrote.
+    """
+    db = ctx.obj["db"]
+
+    from src.standings import (
+        compute_standings,
+        derivable_league_seasons,
+        incoherent_reason,
+        store_derived_standings,
+    )
+
+    targets = derivable_league_seasons(db)
+    if league:
+        targets = [t for t in targets if t["slug"] == league]
+        if not targets:
+            console.print(f"[red]No finished matches for league '{league}'[/red]")
+            sys.exit(1)
+    if season:
+        targets = [t for t in targets if t["season"] == season]
+    if not include_ranked and not force:
+        targets = [t for t in targets if t["needs_table"]]
+
+    if not targets:
+        console.print("[green]✓ Every league-season with results already ranks[/green]")
+        return
+
+    table = Table(title="🧮 Derived Standings", show_header=True)
+    table.add_column("League")
+    table.add_column("Season")
+    table.add_column("Finished", justify="right")
+    table.add_column("Teams", justify="right")
+    table.add_column("Result")
+
+    written = declined = 0
+    for target in targets:
+        derived = compute_standings(db, target["league_id"], target["season"])
+        reason = incoherent_reason(db, target["league_id"], target["season"], derived)
+
+        if dry_run:
+            outcome = f"[red]{reason}[/red]" if reason else "[green]would write[/green]"
+        elif reason and not force:
+            outcome = f"[red]declined — {reason}[/red]"
+            declined += 1
+        else:
+            count = store_derived_standings(
+                db, target["league_id"], target["season"], force=force
+            )
+            if count:
+                outcome = f"[green]✓ wrote {count}[/green]"
+                written += 1
+            else:
+                outcome = "[yellow]declined — see log[/yellow]"
+                declined += 1
+
+        table.add_row(
+            target["slug"], target["season"], str(target["finished"]),
+            str(len(derived)), outcome,
+        )
+
+    console.print(table)
+    if dry_run:
+        console.print(f"[cyan]Dry run — {len(targets)} league-season(s) inspected[/cyan]")
+    else:
+        console.print(
+            f"[green]✓ Rebuilt {written} table(s)[/green]"
+            + (f", [yellow]{declined} declined[/yellow]" if declined else "")
+        )
+
+
+# ═══════════════════════════════════════════════════════════════
 #  status — Dashboard
 # ═══════════════════════════════════════════════════════════════
 
