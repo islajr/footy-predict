@@ -1065,12 +1065,13 @@ class Database:
         They are populated from the API-Football standings response which
         includes ``entry["home"]`` and ``entry["away"]`` sub-dicts.
 
-        .. warning::
-           The conflict clause below overwrites unconditionally, so a blank
-           incoming row replaces a complete stored one. This has already
-           destroyed 53 real rows — see ``HANDOFF.md``, task 1, for the fix and
-           the evidence. Do not add callers that write partial tables until the
-           downgrade guard is in place.
+        The conflict clause refuses a downgrade: an incoming row with
+        ``played=0`` leaves a stored row that has real data untouched. Before
+        this guard existed the overwrite was unconditional and a blank
+        pre-season table destroyed 53 complete rows — see ``HANDOFF.md`` for
+        the evidence. A caller writing a partial table is therefore safe, but
+        the write is also silent, so it cannot be used to zero a row
+        deliberately.
         """
         with self._connect() as conn:
             conn.execute(
@@ -1108,6 +1109,7 @@ class Database:
                     away_lost=excluded.away_lost,
                     away_gf=excluded.away_gf,
                     away_ga=excluded.away_ga
+                WHERE excluded.played > 0 OR standings.played = 0
                 """,
                 (league_id, season, team_id, position, played, won, drawn,
                  lost, goals_for, goals_against, goal_difference, points, form,

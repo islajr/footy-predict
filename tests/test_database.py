@@ -281,3 +281,80 @@ def test_api_usage_operations(temp_db):
     # Check remaining quota
     remaining = db.get_remaining_quota("api_football", daily_limit=100)
     assert remaining == 99
+
+def test_standings_upsert_refuses_downgrade(temp_db):
+    """A blank incoming row must not overwrite a complete stored one.
+
+    This is the write that destroyed 53 rows: a pre-season table with every
+    team on played=0 landed on top of the previous season's final table.
+    """
+    db = temp_db
+    l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
+    team_id = db.upsert_team("Arsenal", l_id, api_football_id=42)
+
+    # A completed season.
+    db.upsert_standing(
+        league_id=l_id, season="2025-26", team_id=team_id, position=1,
+        played=38, won=26, drawn=7, lost=5,
+        goals_for=85, goals_against=34, goal_difference=51, points=85,
+    )
+
+    # The pre-season table for the same key: ranked nothing, played nothing.
+    db.upsert_standing(
+        league_id=l_id, season="2025-26", team_id=team_id, position=1,
+        played=0, won=0, drawn=0, lost=0,
+        goals_for=0, goals_against=0, goal_difference=0, points=0,
+    )
+
+    row = db.get_standings(l_id, "2025-26")[0]
+    assert row["played"] == 38, "blank row clobbered a completed season"
+    assert row["points"] == 85
+    assert row["goals_for"] == 85
+
+def test_standings_upsert_allows_real_update(temp_db):
+    """The guard must not block ordinary matchday-to-matchday progress."""
+    db = temp_db
+    l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
+    team_id = db.upsert_team("Arsenal", l_id, api_football_id=42)
+
+    # Matchday 1, then matchday 2 — a real update over a real row.
+    db.upsert_standing(
+        league_id=l_id, season="2026-27", team_id=team_id, position=4,
+        played=1, won=1, drawn=0, lost=0,
+        goals_for=3, goals_against=1, goal_difference=2, points=3,
+    )
+    db.upsert_standing(
+        league_id=l_id, season="2026-27", team_id=team_id, position=2,
+        played=2, won=2, drawn=0, lost=0,
+        goals_for=5, goals_against=1, goal_difference=4, points=6,
+    )
+
+    row = db.get_standings(l_id, "2026-27")[0]
+    assert row["played"] == 2
+    assert row["points"] == 6
+    assert row["position"] == 2
+
+def test_standings_upsert_fills_an_empty_row(temp_db):
+    """A stored row with played=0 has nothing to lose, so it accepts anything.
+
+    Covers the second half of the guard: the pre-season table is written first
+    (legitimately — it is all that exists), then the first real matchday must
+    still be able to land on top of it.
+    """
+    db = temp_db
+    l_id = db.upsert_league("Premier League", "England", "premier-league", 39)
+    team_id = db.upsert_team("Arsenal", l_id, api_football_id=42)
+
+    db.upsert_standing(
+        league_id=l_id, season="2026-27", team_id=team_id, position=1, played=0,
+    )
+    db.upsert_standing(
+        league_id=l_id, season="2026-27", team_id=team_id, position=3,
+        played=1, won=1, goals_for=2, goals_against=0, goal_difference=2, points=3,
+    )
+
+    row = db.get_standings(l_id, "2026-27")[0]
+    assert row["played"] == 1
+    assert row["points"] == 3
+    assert row["position"] == 3
+
