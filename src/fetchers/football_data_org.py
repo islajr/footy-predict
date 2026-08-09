@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import date, datetime, timezone
 from typing import Any
 
 import httpx
@@ -45,6 +46,81 @@ class FDOError(Exception):
 
 class FDORateLimitError(FDOError):
     """Raised when the per-minute rate limit is hit."""
+
+
+def _season_start_year(season: dict[str, Any]) -> int | None:
+    """Extract the season's start year from an FDO ``season`` block.
+
+    The block is the only part of a standings response that states which
+    season the payload describes. ``startDate`` is an ISO date, so the year is
+    its first four characters.
+
+    Returns:
+        The start year, or ``None`` if the block is missing or unparseable —
+        in which case the caller cannot verify the season and must not guess.
+    """
+    start = season.get("startDate")
+    if not isinstance(start, str) or len(start) < 4:
+        return None
+    try:
+        return int(start[:4])
+    except ValueError:
+        return None
+
+
+def _stale_table_reason(
+    table: list[dict[str, Any]],
+    season: dict[str, Any],
+    today: date | None = None,
+) -> str | None:
+    """Check a standings table against the season it claims to describe.
+
+    Two contradictions mean the response is stale on arrival — the API served
+    a completed table under a season block for a season that has barely begun:
+
+    1. The season starts in the future, yet games are recorded against it.
+    2. Teams have played more games than ``currentMatchday`` allows. One full
+       extra matchday of headroom absorbs fixtures rearranged out of order.
+
+    The second check exists because the first stops firing the moment the
+    season nominally starts, while the stale payload does not stop arriving:
+    on 2026-08-09 the Liga Portugal response reported 592 played games under a
+    season block starting 2026-08-08, one day earlier, at matchday 1.
+
+    Returns:
+        A reason string suitable for a log line, or ``None`` if the table is
+        consistent with its season block.
+    """
+    if not table:
+        return None
+
+    total_played = sum(entry.get("playedGames", 0) or 0 for entry in table)
+    if total_played == 0:
+        return None
+
+    start_year_date = season.get("startDate")
+    if isinstance(start_year_date, str) and len(start_year_date) >= 10:
+        today = today or datetime.now(timezone.utc).date()
+        try:
+            start = date.fromisoformat(start_year_date[:10])
+        except ValueError:
+            start = None
+        if start is not None and start > today:
+            return (
+                f"season starts {start.isoformat()} (after today {today.isoformat()}) "
+                f"but the table records {total_played} played games"
+            )
+
+    current_matchday = season.get("currentMatchday")
+    if isinstance(current_matchday, int) and current_matchday > 0:
+        ceiling = len(table) * (current_matchday + 1)
+        if total_played > ceiling:
+            return (
+                f"table records {total_played} played games across {len(table)} teams, "
+                f"which matchday {current_matchday} cannot account for (ceiling {ceiling})"
+            )
+
+    return None
 
 
 class FootballDataOrgClient:
@@ -235,7 +311,7 @@ class FootballDataOrgClient:
     async def get_standings(
         self,
         competition_code: str,
-    ) -> list[dict]:
+    ) -> tuple[list[dict], dict[str, Any]]:
         """
         Fetch current league standings.
 
@@ -243,27 +319,25 @@ class FootballDataOrgClient:
             competition_code: FDO competition code.
 
         Returns:
-            List of standing entries from the ``TOTAL`` table.
-
-        .. warning::
-           This sends no season parameter and discards the response's ``season``
-           block, so the caller cannot tell which season it received. Across a
-           season turnover the returned table and the label
-           :meth:`fetch_and_store_standings` assigns it disagree by a full year,
-           in either direction. See ``HANDOFF.md``, task 2.
+            A ``(table, season)`` pair — the ``TOTAL`` table entries, and the
+            response's own ``season`` block. The season block is what states
+            which season the table describes; the request sends no season
+            parameter, so it is the only means the caller has of finding out.
+            Callers must label from it rather than from the calendar.
         """
         data = await self._request(
             f"/competitions/{competition_code}/standings",
             ttl=CACHE_TTL.standings,
         )
 
+        season: dict[str, Any] = data.get("season") or {}
         standings = data.get("standings", [])
         for table in standings:
             if table.get("type") == "TOTAL":
-                return table.get("table", [])
+                return table.get("table", []), season
 
         # Fallback: return first table if no TOTAL type
-        return standings[0].get("table", []) if standings else []
+        return (standings[0].get("table", []) if standings else []), season
 
     async def get_head_to_head(
         self,
@@ -419,11 +493,23 @@ class FootballDataOrgClient:
         """
         Fetch current standings from Football-Data.org and upsert into DB.
 
+        The season label is derived from the response's own ``season`` block,
+        never from today's date. The request sends no season parameter, so the
+        calendar is only a guess at what the API will return — and across the
+        July–August turnover that guess was wrong in both directions, which is
+        how an empty table came to overwrite a completed one.
+
+        A response whose table contradicts its season block is stale on
+        arrival: it is logged and declined. It is not stored under the
+        previous label either — a completed table filed one season back would
+        overwrite a derived table that is likely more accurate.
+
         Args:
             league_slug: League identifier.
 
         Returns:
-            Number of standing entries upserted.
+            Number of standing entries upserted; ``0`` if the response was
+            declined as stale or carried no usable season block.
         """
         league = self._get_league(league_slug)
         if not league.has_fdo:
@@ -442,10 +528,36 @@ class FootballDataOrgClient:
         )
 
         fdo_code: str = league.football_data_org_code  # type: ignore[assignment]
-        # NOTE: this label comes from today's date, not from the season the API
-        # actually returned — the two diverge during a turnover. HANDOFF.md task 2.
-        season_label = league.get_season_label()
-        standings = await self.get_standings(fdo_code)
+        standings, season = await self.get_standings(fdo_code)
+
+        start_year = _season_start_year(season)
+        if start_year is None:
+            logger.warning(
+                "FDO standings for %s carry no usable season block — declining "
+                "the write rather than labelling from the calendar.",
+                league_slug,
+            )
+            return 0
+
+        stale_reason = _stale_table_reason(standings, season)
+        if stale_reason is not None:
+            logger.warning(
+                "FDO standings for %s are stale on arrival (%s). Declining the "
+                "write — storing this under either season label would overwrite "
+                "good data.",
+                league_slug, stale_reason,
+            )
+            return 0
+
+        season_label = league.get_season_label(start_year)
+        calendar_label = league.get_season_label()
+        if season_label != calendar_label:
+            logger.info(
+                "FDO standings for %s are labelled %s from the response; the "
+                "calendar would have said %s.",
+                league_slug, season_label, calendar_label,
+            )
+
         count = 0
 
         for entry in standings:
