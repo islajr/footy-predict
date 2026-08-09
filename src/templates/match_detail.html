@@ -72,16 +72,18 @@
         {% for f in analysis.factor_results %}
         <div class="factor-bar-container">
             <div class="factor-name" title="{{ f.rationale }}">{{ f.name.replace('_', ' ').title() }}</div>
-            <div class="factor-track">
-                <!-- If score is positive, fill leftwards towards Home (cyan) -->
+            <div class="factor-track" style="position: relative; flex-grow: 1; height: 10px; background-color: var(--bg-surface-hover, #1C1C24); border: 1px solid var(--border-primary, rgba(255,255,255,0.1)); border-radius: 9999px; overflow: hidden;">
+                <!-- Center line marker -->
+                <div style="position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; background-color: var(--border-strong, #3A3A3C); transform: translateX(-50%); z-index: 2;"></div>
+                <!-- If score is positive, fill leftwards towards Home in Cyan (#00f0ff) -->
                 {% if f.score > 0 %}
-                <div class="factor-bar factor-bar-home" style="width: {{ (f.score * 50)|int }}%;"></div>
+                <div style="position: absolute; top: 0; bottom: 0; right: 50%; width: {{ (f.score * 50)|int }}%; background-color: #00f0ff; border-radius: 9999px 0 0 9999px; transition: all 300ms ease;"></div>
                 {% elif f.score < 0 %}
-                <!-- If score is negative, fill rightwards towards Away (magenta) -->
-                <div class="factor-bar factor-bar-away" style="width: {{ (f.score|abs * 50)|int }}%;"></div>
+                <!-- If score is negative, fill rightwards towards Away in Magenta (#ff007f) -->
+                <div style="position: absolute; top: 0; bottom: 0; left: 50%; width: {{ (f.score|abs * 50)|int }}%; background-color: #ff007f; border-radius: 0 9999px 9999px 0; transition: all 300ms ease;"></div>
                 {% endif %}
             </div>
-            <div class="factor-val" style="color: {% if f.score > 0 %}var(--color-cyan){% elif f.score < 0 %}var(--color-magenta){% else %}var(--text-primary){% endif %};">
+            <div class="factor-val" style="color: {% if f.score > 0 %}#00f0ff{% elif f.score < 0 %}#ff007f{% else %}var(--text-primary){% endif %}; font-weight: 600;">
                 {{ "%+.2f"|format(f.score) }}
             </div>
         </div>
