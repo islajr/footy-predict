@@ -60,27 +60,28 @@ def _bar(value: float, width: int = 12) -> str:
 def _bar_directional(score: float, width: int = 14) -> Text:
     """Rich Text bar with directional display for factor scores (-1..+1).
 
-    Negative scores lean left (Away-favoured, shown in magenta);
-    positive scores lean right (Home-favoured, shown in cyan).
+    Positive scores lean left (Home-favoured, shown in dark royal blue);
+    negative scores lean right (Away-favoured, shown in dark crimson).
     A midpoint marker divides the bar.
     """
     half = width // 2
     txt = Text()
     if score >= 0:
         filled = int(round(score * half))
-        txt.append("░" * half, style="dim")
-        txt.append("│", style="bold white")
-        txt.append("█" * filled, style="cyan")
         txt.append("░" * (half - filled), style="dim")
-        txt.append(f"  +{score:.2f}", style="bold cyan")
+        txt.append("█" * filled, style="#1b66c9")
+        txt.append("│", style="bold white")
+        txt.append("░" * half, style="dim")
+        txt.append(f"  +{score:.2f}", style="bold #1b66c9")
     else:
         filled = int(round(abs(score) * half))
-        txt.append("░" * (half - filled), style="dim")
-        txt.append("█" * filled, style="magenta")
-        txt.append("│", style="bold white")
         txt.append("░" * half, style="dim")
-        txt.append(f"  {score:.2f}", style="bold magenta")
+        txt.append("│", style="bold white")
+        txt.append("█" * filled, style="#b8144c")
+        txt.append("░" * (half - filled), style="dim")
+        txt.append(f"  {score:.2f}", style="bold #b8144c")
     return txt
+
 
 
 def _bar_colored(value: float, width: int = 12) -> Text:
@@ -231,7 +232,11 @@ class ReportFormatter:
 
     # ─── CLI Formatters ─────────────────────────────────────
 
-    def format_match_analysis_cli(self, analysis: MatchAnalysis) -> Panel:
+    def format_match_analysis_cli(
+        self,
+        analysis: MatchAnalysis,
+        full_rationale: bool = True,
+    ) -> Panel:
         """
         Build a Rich Panel with the full decision-support match card.
 
@@ -321,7 +326,7 @@ class ReportFormatter:
             padding=(0, 1),
         )
         factor_table.add_column("Factor", style="bold", min_width=22)
-        factor_table.add_column("Score  [dim cyan]← Away   Home →[/dim cyan]", min_width=32)
+        factor_table.add_column("Score  [dim #1b66c9]← Home[/dim #1b66c9]   [dim #b8144c]Away →[/dim #b8144c]", min_width=32)
         factor_table.add_column("Conf", justify="right", style="dim")
         factor_table.add_column("Wt", justify="right", style="dim")
 
@@ -368,7 +373,7 @@ class ReportFormatter:
             mkt_table.add_column("Pick",   style="bold cyan", min_width=22)
             mkt_table.add_column("Prob",   justify="right", min_width=6)
             mkt_table.add_column("Odds",   justify="right", style="dim", min_width=6)
-            mkt_table.add_column("Rationale (summary)", min_width=40)
+            mkt_table.add_column("Rationale", min_width=40)
 
             for pick_n, rec in enumerate(tier_recs, 1):
                 market   = _safe_attr(rec, "market", "") or _safe_attr(rec, "market_code", "")
@@ -376,15 +381,16 @@ class ReportFormatter:
                 prob     = float(_safe_attr(rec, "probability", 0.0) or 0.0)
                 odds     = float(_safe_attr(rec, "implied_odds", 0.0) or 0.0)
                 rationale = _safe_attr(rec, "rationale", "") or ""
-                short_rat = rationale[:90] + "…" if len(rationale) > 90 else rationale
+                display_rat = rationale if full_rationale else (rationale[:90] + "…" if len(rationale) > 90 else rationale)
                 mkt_table.add_row(
                     str(pick_n),
                     market,
                     pick,
                     f"{prob:.0%}",
                     f"{odds:.2f}" if odds else "—",
-                    short_rat,
+                    display_rat,
                 )
+
 
             sections_content.append(
                 Panel(

@@ -546,8 +546,18 @@ def analyze():
 @click.option("--league", "-l", default=None, help="League slug. Omit for all leagues.")
 @click.option("--from", "from_date", default=None, help="Start date (YYYY-MM-DD).")
 @click.option("--to", "to_date", default=None, help="End date (YYYY-MM-DD).")
+@click.option(
+    "--full", "-F", is_flag=True, default=True,
+    help="Display full untruncated rationale in analysis panels. Default: True.",
+)
 @click.pass_context
-def analyze_matchweek(ctx: click.Context, league: str | None, from_date: str | None, to_date: str | None) -> None:
+def analyze_matchweek(
+    ctx: click.Context,
+    league: str | None,
+    from_date: str | None,
+    to_date: str | None,
+    full: bool,
+) -> None:
     """Analyse all matches in the upcoming matchweek."""
     db = ctx.obj["db"]
 
@@ -585,7 +595,7 @@ def analyze_matchweek(ctx: click.Context, league: str | None, from_date: str | N
 
     # Detailed panels for each match
     for analysis in analyses:
-        panel = formatter.format_match_analysis_cli(analysis)
+        panel = formatter.format_match_analysis_cli(analysis, full_rationale=full)
         console.print(panel)
         console.print()
 
@@ -597,8 +607,12 @@ def analyze_matchweek(ctx: click.Context, league: str | None, from_date: str | N
 
 @analyze.command("match")
 @click.argument("fixture")
+@click.option(
+    "--full", "-F", is_flag=True, default=True,
+    help="Display full untruncated rationale in analysis panels. Default: True.",
+)
 @click.pass_context
-def analyze_match(ctx: click.Context, fixture: str) -> None:
+def analyze_match(ctx: click.Context, fixture: str, full: bool) -> None:
     """Deep-dive analysis of a specific fixture.
 
     FIXTURE should be in the format "Team A vs Team B".
@@ -631,11 +645,12 @@ def analyze_match(ctx: click.Context, fixture: str) -> None:
         console.print("[dim]Make sure teams are spelled correctly and data has been fetched.[/dim]")
         return
 
-    panel = formatter.format_match_analysis_cli(analysis)
+    panel = formatter.format_match_analysis_cli(analysis, full_rationale=full)
     console.print(panel)
 
     # Store prediction
     _store_predictions(db, [analysis])
+
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -1069,6 +1084,10 @@ def _store_predictions(db, analyses) -> int:
     "--output", "-f", default=None, type=click.Path(),
     help="Optional file path to save the report (plain text).",
 )
+@click.option(
+    "--full", "-F", is_flag=True, default=False,
+    help="Display full untruncated rationale in terminal output.",
+)
 @click.pass_context
 def report(
     ctx: click.Context,
@@ -1077,6 +1096,7 @@ def report(
     league: str | None,
     days: int,
     output: str | None,
+    full: bool,
 ) -> None:
     """Generate a weekly decision-support pick report.
 
@@ -1096,10 +1116,11 @@ def report(
     Examples:
         footy report                           # MEDIUM picks, odds>=1.32, next 7 days
         footy report --days 3                  # this weekend only
+        footy report --full                    # display full untruncated rationale
         footy report --min-odds 1.40           # stricter odds floor
         footy report --min-confidence HIGH     # all HIGH picks (any odds)
         footy report -c HIGH --min-odds 0      # HIGH picks, no odds filter
-        footy report --output weekend.txt      # save to file
+        footy report --output weekend.txt      # save to file (always full rationale)
     """
     from src.config import VALUE_MIN_ODDS
     from src.analysis.engine import AnalysisEngine
@@ -1193,12 +1214,13 @@ def report(
             f"  [{conf_c}]{top.confidence}[/{conf_c}]"
         )
 
-        # Rationale (first 200 chars for brevity)
+        # Rationale
         rationale = getattr(top, "rationale", "") or ""
         if rationale:
-            short = rationale[:220].rstrip()
-            if len(rationale) > 220:
-                short += "…"
+            if full or len(rationale) <= 220:
+                short = rationale.rstrip()
+            else:
+                short = rationale[:220].rstrip() + "…"
             console.print(f"  [dim]  {short}[/dim]")
 
         # Risk flags
@@ -1234,16 +1256,14 @@ def report(
         "This report is decision-support — do your own research before placing bets.[/dim]\n"
     )
 
-    # Optional file output (plain text, no Rich markup)
+    # Optional file output (plain text or styled HTML)
     if output:
         try:
-            import re
-            _ansi_strip = re.compile(r"\[/?[a-z /#]+\]")
-
-            with open(output, "w") as f:
-                f.write(f"FOOTY PREDICT — WEEKEND PICKS REPORT\n")
-                f.write(f"{date_range} · {conf_floor}+ · odds≥{odds_floor:.2f}\n")
-                f.write("=" * 70 + "\n\n")
+            if output.lower().endswith((".html", ".htm")):
+                # Export as rich styled HTML
+                html_console = Console(record=True, width=100)
+                html_console.print(header)
+                html_console.print(Rule(style="cyan"))
 
                 for analysis in analyses:
                     recs = getattr(analysis, "market_recommendations", [])
@@ -1254,25 +1274,85 @@ def report(
                         key=lambda r: (-_tier_order.get(r.confidence, 2), -r.probability)
                     )
                     top = value_recs[0]
+                    alternates = value_recs[1:5]
+
                     home = getattr(analysis, "home_team", "Home")
                     away = getattr(analysis, "away_team", "Away")
                     league_name = getattr(analysis, "league", "")
                     match_date = getattr(analysis, "match_date", "")
-                    f.write(f"{home} vs {away}  |  {league_name}  |  {match_date}\n")
-                    f.write(
-                        f"  TOP: {top.pick}  {top.probability:.0%}  {top.implied_odds:.2f} odds  {top.confidence}\n"
+                    dq = getattr(analysis, "data_quality", "MEDIUM")
+                    risks = getattr(analysis, "risk_flags", [])
+
+                    dq_colour = {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(dq, "white")
+                    html_console.print(
+                        f"\n  [bold cyan]{home}[/bold cyan] [dim]vs[/dim] [bold magenta]{away}[/bold magenta]"
+                        f"  [dim]{league_name}  ·  {match_date}[/dim]"
+                        f"  [dim]data:[/dim] [{dq_colour}]{dq}[/{dq_colour}]"
                     )
+
+                    conf_c = _conf_colours.get(top.confidence, "white")
+                    conf_i = _conf_icons.get(top.confidence, "⚪")
+                    html_console.print(
+                        f"  {conf_i} [bold]TOP PICK:[/bold]  "
+                        f"[{conf_c}]{top.pick}[/{conf_c}]"
+                        f"  [cyan]{top.probability:.0%}[/cyan]"
+                        f"  [yellow]{top.implied_odds:.2f} odds[/yellow]"
+                        f"  [{conf_c}]{top.confidence}[/{conf_c}]"
+                    )
+
                     rationale = getattr(top, "rationale", "") or ""
                     if rationale:
-                        f.write(f"  {rationale[:200]}\n")
-                    if len(value_recs) > 1:
-                        alts = "  Also: " + "  |  ".join(
-                            f"{r.pick} {r.probability:.0%} {r.implied_odds:.2f}"
-                            for r in value_recs[1:5]
+                        html_console.print(f"  [dim]  {rationale}[/dim]")
+
+                    if risks:
+                        html_console.print(f"  [red dim]  ⚠ {' · '.join(risks[:3])}[/red dim]")
+
+                    if alternates:
+                        alt_parts = []
+                        for a in alternates:
+                            alt_parts.append(
+                                f"[dim]{a.pick}[/dim] [cyan]{a.probability:.0%}[/cyan] [yellow]{a.implied_odds:.2f}[/yellow]"
+                            )
+                        html_console.print("  [dim]  Also:[/dim] " + "  [dim]·[/dim] ".join(alt_parts))
+
+                    html_console.print(Rule(style="dim", characters="─"))
+
+                html_console.save_html(output)
+            else:
+                with open(output, "w") as f:
+                    f.write(f"FOOTY PREDICT — WEEKEND PICKS REPORT\n")
+                    f.write(f"{date_range} · {conf_floor}+ · odds≥{odds_floor:.2f}\n")
+                    f.write("=" * 70 + "\n\n")
+
+                    for analysis in analyses:
+                        recs = getattr(analysis, "market_recommendations", [])
+                        value_recs = [r for r in recs if _passes(r)]
+                        if not value_recs:
+                            continue
+                        value_recs.sort(
+                            key=lambda r: (-_tier_order.get(r.confidence, 2), -r.probability)
                         )
-                        f.write(alts + "\n")
-                    f.write("-" * 70 + "\n")
+                        top = value_recs[0]
+                        home = getattr(analysis, "home_team", "Home")
+                        away = getattr(analysis, "away_team", "Away")
+                        league_name = getattr(analysis, "league", "")
+                        match_date = getattr(analysis, "match_date", "")
+                        f.write(f"{home} vs {away}  |  {league_name}  |  {match_date}\n")
+                        f.write(
+                            f"  TOP: {top.pick}  {top.probability:.0%}  {top.implied_odds:.2f} odds  {top.confidence}\n"
+                        )
+                        rationale = getattr(top, "rationale", "") or ""
+                        if rationale:
+                            f.write(f"  {rationale}\n")
+                        if len(value_recs) > 1:
+                            alts = "  Also: " + "  |  ".join(
+                                f"{r.pick} {r.probability:.0%} {r.implied_odds:.2f}"
+                                for r in value_recs[1:5]
+                            )
+                            f.write(alts + "\n")
+                        f.write("-" * 70 + "\n")
 
             console.print(f"[green]Report saved → {output}[/green]")
         except Exception as e:
             console.print(f"[red]Could not save report: {e}[/red]")
+

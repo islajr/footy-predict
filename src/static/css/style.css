@@ -81,6 +81,14 @@ html, [data-theme="dark"] {
     --color-purple-muted: rgba(191, 90, 242, 0.12);
     --color-teal: #32D2C9;
     --color-teal-muted: rgba(50, 210, 201, 0.12);
+    --color-home: #3892FF;
+    --color-home-muted: rgba(56, 146, 255, 0.16);
+    --color-away: #FF3B85;
+    --color-away-muted: rgba(255, 59, 133, 0.16);
+    --color-cyan: #3892FF;
+    --color-cyan-muted: rgba(56, 146, 255, 0.16);
+    --color-magenta: #FF3B85;
+    --color-magenta-muted: rgba(255, 59, 133, 0.16);
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -120,6 +128,14 @@ html, [data-theme="dark"] {
     --color-purple-muted: rgba(175, 82, 222, 0.10);
     --color-teal: #00A39B;
     --color-teal-muted: rgba(0, 163, 155, 0.10);
+    --color-home: #0052B4;
+    --color-home-muted: rgba(0, 82, 180, 0.12);
+    --color-away: #B0003A;
+    --color-away-muted: rgba(176, 0, 58, 0.12);
+    --color-cyan: #0052B4;
+    --color-cyan-muted: rgba(0, 82, 180, 0.12);
+    --color-magenta: #B0003A;
+    --color-magenta-muted: rgba(176, 0, 58, 0.12);
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.06);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
@@ -1077,30 +1093,43 @@ select option {
 
 .factor-track {
     flex-grow: 1;
-    height: 8px;
+    height: 10px;
     background-color: var(--bg-surface-hover);
     border: 1px solid var(--border-primary);
     border-radius: var(--radius-full);
-    display: flex;
-    align-items: center;
     position: relative;
+    overflow: hidden;
+}
+
+.factor-track::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background-color: var(--border-strong);
+    transform: translateX(-50%);
+    z-index: 2;
 }
 
 .factor-bar {
-    height: 100%;
-    border-radius: var(--radius-full);
+    position: absolute;
+    top: 0;
+    bottom: 0;
     transition: all var(--transition-slow);
 }
 
 .factor-bar-home {
-    background-color: var(--color-green);
-    margin-left: 50%;
+    right: 50%;
+    background-color: var(--color-cyan);
+    border-radius: var(--radius-full) 0 0 var(--radius-full);
 }
 
 .factor-bar-away {
-    background-color: var(--color-red);
-    margin-left: auto;
-    margin-right: 50%;
+    left: 50%;
+    background-color: var(--color-magenta);
+    border-radius: 0 var(--radius-full) var(--radius-full) 0;
 }
 
 .factor-val {
