@@ -231,7 +231,11 @@ class ReportFormatter:
 
     # ─── CLI Formatters ─────────────────────────────────────
 
-    def format_match_analysis_cli(self, analysis: MatchAnalysis) -> Panel:
+    def format_match_analysis_cli(
+        self,
+        analysis: MatchAnalysis,
+        full_rationale: bool = True,
+    ) -> Panel:
         """
         Build a Rich Panel with the full decision-support match card.
 
@@ -368,7 +372,7 @@ class ReportFormatter:
             mkt_table.add_column("Pick",   style="bold cyan", min_width=22)
             mkt_table.add_column("Prob",   justify="right", min_width=6)
             mkt_table.add_column("Odds",   justify="right", style="dim", min_width=6)
-            mkt_table.add_column("Rationale (summary)", min_width=40)
+            mkt_table.add_column("Rationale", min_width=40)
 
             for pick_n, rec in enumerate(tier_recs, 1):
                 market   = _safe_attr(rec, "market", "") or _safe_attr(rec, "market_code", "")
@@ -376,15 +380,16 @@ class ReportFormatter:
                 prob     = float(_safe_attr(rec, "probability", 0.0) or 0.0)
                 odds     = float(_safe_attr(rec, "implied_odds", 0.0) or 0.0)
                 rationale = _safe_attr(rec, "rationale", "") or ""
-                short_rat = rationale[:90] + "…" if len(rationale) > 90 else rationale
+                display_rat = rationale if full_rationale else (rationale[:90] + "…" if len(rationale) > 90 else rationale)
                 mkt_table.add_row(
                     str(pick_n),
                     market,
                     pick,
                     f"{prob:.0%}",
                     f"{odds:.2f}" if odds else "—",
-                    short_rat,
+                    display_rat,
                 )
+
 
             sections_content.append(
                 Panel(
