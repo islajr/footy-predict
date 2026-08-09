@@ -213,6 +213,7 @@ python /path/to/simulate_historical.py
 - **[Architecture](architecture.md)** — system design and module layout
 - **[Codebase Map](CODEBASE.md)** — file-by-file reference
 - **[Simulation Report](simulation_report_phase_a.md)** — accuracy measurements, calibration history, factor coverage
+- **[Handoff — Standings Integrity](HANDOFF.md)** — active work order: a standings write path that mislabels seasons and lets blank tables overwrite real ones. Temporary; delete when its three tasks are done.
 
 ---
 
