@@ -60,8 +60,8 @@ def _bar(value: float, width: int = 12) -> str:
 def _bar_directional(score: float, width: int = 14) -> Text:
     """Rich Text bar with directional display for factor scores (-1..+1).
 
-    Positive scores lean left (Home-favoured, shown in cyan);
-    negative scores lean right (Away-favoured, shown in magenta).
+    Positive scores lean left (Home-favoured, shown in dark royal blue);
+    negative scores lean right (Away-favoured, shown in dark crimson).
     A midpoint marker divides the bar.
     """
     half = width // 2
@@ -69,17 +69,17 @@ def _bar_directional(score: float, width: int = 14) -> Text:
     if score >= 0:
         filled = int(round(score * half))
         txt.append("░" * (half - filled), style="dim")
-        txt.append("█" * filled, style="cyan")
+        txt.append("█" * filled, style="#1b66c9")
         txt.append("│", style="bold white")
         txt.append("░" * half, style="dim")
-        txt.append(f"  +{score:.2f}", style="bold cyan")
+        txt.append(f"  +{score:.2f}", style="bold #1b66c9")
     else:
         filled = int(round(abs(score) * half))
         txt.append("░" * half, style="dim")
         txt.append("│", style="bold white")
-        txt.append("█" * filled, style="magenta")
+        txt.append("█" * filled, style="#b8144c")
         txt.append("░" * (half - filled), style="dim")
-        txt.append(f"  {score:.2f}", style="bold magenta")
+        txt.append(f"  {score:.2f}", style="bold #b8144c")
     return txt
 
 
@@ -326,7 +326,7 @@ class ReportFormatter:
             padding=(0, 1),
         )
         factor_table.add_column("Factor", style="bold", min_width=22)
-        factor_table.add_column("Score  [dim cyan]← Home[/dim cyan]   [dim magenta]Away →[/dim magenta]", min_width=32)
+        factor_table.add_column("Score  [dim #1b66c9]← Home[/dim #1b66c9]   [dim #b8144c]Away →[/dim #b8144c]", min_width=32)
         factor_table.add_column("Conf", justify="right", style="dim")
         factor_table.add_column("Wt", justify="right", style="dim")
 
