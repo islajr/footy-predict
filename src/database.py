@@ -1064,6 +1064,13 @@ class Database:
         that do not provide venue-specific standings (e.g. football-data.org).
         They are populated from the API-Football standings response which
         includes ``entry["home"]`` and ``entry["away"]`` sub-dicts.
+
+        .. warning::
+           The conflict clause below overwrites unconditionally, so a blank
+           incoming row replaces a complete stored one. This has already
+           destroyed 53 real rows — see ``HANDOFF.md``, task 1, for the fix and
+           the evidence. Do not add callers that write partial tables until the
+           downgrade guard is in place.
         """
         with self._connect() as conn:
             conn.execute(

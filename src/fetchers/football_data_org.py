@@ -244,6 +244,13 @@ class FootballDataOrgClient:
 
         Returns:
             List of standing entries from the ``TOTAL`` table.
+
+        .. warning::
+           This sends no season parameter and discards the response's ``season``
+           block, so the caller cannot tell which season it received. Across a
+           season turnover the returned table and the label
+           :meth:`fetch_and_store_standings` assigns it disagree by a full year,
+           in either direction. See ``HANDOFF.md``, task 2.
         """
         data = await self._request(
             f"/competitions/{competition_code}/standings",
@@ -435,6 +442,8 @@ class FootballDataOrgClient:
         )
 
         fdo_code: str = league.football_data_org_code  # type: ignore[assignment]
+        # NOTE: this label comes from today's date, not from the season the API
+        # actually returned — the two diverge during a turnover. HANDOFF.md task 2.
         season_label = league.get_season_label()
         standings = await self.get_standings(fdo_code)
         count = 0
