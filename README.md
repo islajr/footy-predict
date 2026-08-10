@@ -15,7 +15,8 @@ Runs entirely on your laptop with SQLite. No hosting required.
 | **16-Factor Analysis Engine** | Form, xG quality, head-to-head, rest days, rivalry, venue bias, opponent strength, attacking matchup, scoring patterns, goal timing, and more |
 | **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~65 picks per fixture |
 | **Value Zone Filtering** | `footy report` defaults to **MEDIUM** confidence + ≥1.32 model odds — the correct value zone for 64,000-odds accumulator construction |
-| **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, rationale, risk flags, and 4 alternatives. Designed to be read, not blindly followed |
+| **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, 100% full rationale (`-F`/`--full`), risk flags, and 4 alternatives. Exportable as plain text (`.txt`) or rich styled HTML (`.html`) |
+| **Directional Factor Scoring** | Home (Left, positive) vs Away (Right, negative) factor score alignment (`← Home │ Away →`) with theme-adaptive visual colors across terminal CLI and Web UI (`/analysis`) |
 | **Quota-Aware Fetching** | `footy fetch-upcoming` stays within the 100 req/day free API tier |
 | **Accuracy Tracking** | `footy record` + `footy accuracy` + `footy calibrate` — a self-improving loop across the season |
 | **245 Tests** | Pytest suite covering factors, markets, settlement logic, calibration, standings derivation |
@@ -148,15 +149,15 @@ footy fetch [--league SLUG] [--stats]       # fetch fixtures, standings, stats
 footy fetch-upcoming [--days N]             # quota-aware weekend fetch
 footy load-history [--league SLUG] [--seasons N]   # bulk-load historical CSVs
 footy derive-standings [-l SLUG] [-s SEASON] [--all] [--dry-run]  # rebuild tables from results
-footy analyze matchweek [--league SLUG]    # full analysis, all upcoming fixtures
-footy analyze match "Team A vs Team B"     # single-match deep dive
-footy picks [-c HIGH] [-m MARKET] [-o 1.32]        # all picks, filterable
-footy report [-o 1.32] [-c MEDIUM] [--days N] [--output FILE]  # weekly report ⭐
-footy parlay --size 50 [-c HIGH] [-o 1.32]         # parlay builder
-footy record [--league SLUG]               # record finished match results
-footy accuracy [--market M] [--league L]   # accuracy dashboard
-footy calibrate                            # update factor weights
-footy bot start                            # start Telegram bot
+footy analyze matchweek [--league SLUG] [-F/--full]   # full analysis, all upcoming fixtures
+footy analyze match "Team A vs Team B" [-F/--full]    # single-match deep dive
+footy picks [-c HIGH] [-m MARKET] [-o 1.32]            # all picks, filterable
+footy report [-o 1.32] [-c MEDIUM] [-F/--full] [-f report.txt/html] # weekly report ⭐
+footy parlay --size 50 [-c HIGH] [-o 1.32]             # parlay builder
+footy record [--league SLUG]                           # record finished match results
+footy accuracy [--market M] [--league L]               # accuracy dashboard
+footy calibrate                                        # update factor weights
+footy bot start                                        # start Telegram bot
 ```
 
 **See the full CLI Guide for detailed options, examples, and scenario-based recipes.**
@@ -174,6 +175,9 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 ### Active (Season 2026/27)
 - ✅ 16-factor analysis engine
 - ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~65 picks/fixture)
+- ✅ Full untruncated rationales via `--full` / `-F` flag & cell text wrapping
+- ✅ Rich styled HTML report exports via `footy report -f filename.html`
+- ✅ Home (Left) vs Away (Right) factor alignment and theme-adaptive color styling across CLI & Web UI
 - ✅ Probability calibration (shrinkage, Dixon-Coles, DNB fix)
 - ✅ `footy report` defaults to MEDIUM confidence + 1.32 odds — correct value zone
 - ✅ Accuracy tracking and calibration loop

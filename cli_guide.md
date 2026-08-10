@@ -407,7 +407,7 @@ footy derive-standings --force -l la-liga -s 2025-26   # override the refusals b
 ```bash
 footy analyze matchweek                          # all leagues, upcoming
 footy analyze matchweek -l premier-league        # single league
-footy analyze matchweek --from 2026-08-16 --to 2026-08-18
+footy analyze matchweek --from 2026-08-16 --to 2026-08-18 -F
 ```
 
 | Option | Meaning |
@@ -415,6 +415,7 @@ footy analyze matchweek --from 2026-08-16 --to 2026-08-18
 | `-l`, `--league TEXT` | League slug. Omit for all. |
 | `--from TEXT` | Start date (YYYY-MM-DD) |
 | `--to TEXT` | End date (YYYY-MM-DD) |
+| `-F`, `--full` | Display 100% full, untruncated rationales in analysis panels |
 
 **Use it**: For the deep-dive view. `footy report` is more efficient for the weekly routine.
 
@@ -426,10 +427,10 @@ footy analyze matchweek --from 2026-08-16 --to 2026-08-18
 
 ```bash
 footy analyze match "Arsenal vs Chelsea"
-footy analyze match "Barcelona vs Real Madrid"
+footy analyze match "Barcelona vs Real Madrid" -F
 ```
 
-Takes a single `FIXTURE` argument in the form `"Team A vs Team B"`. **No options** — there is no `--league` flag; team names are matched across all leagues.
+Takes a single `FIXTURE` argument in the form `"Team A vs Team B"`. Supports `-F` / `--full` to display untruncated factor explanations.
 
 **Use it**: To understand a specific fixture in detail before committing it to a parlay.
 
@@ -470,12 +471,14 @@ footy picks -l premier-league -c HIGH        # Premier League only
 ```bash
 footy report                                 # MEDIUM, ≥1.32 odds, next 7 days
 footy report -d 3                            # this weekend only (also --days)
+footy report -F                              # print 100% full, untruncated rationales
 footy report -o 1.40                         # stricter odds floor
 footy report -c HIGH                         # HIGH-confidence picks
 footy report -c HIGH -o 0                    # ALL HIGH picks, no odds filter
 footy report -l premier-league               # one league
-footy report -f weekend.txt                  # save to file (also --output)
-footy report -d 3 -f weekend.txt             # combine
+footy report -f weekend.txt                  # save to plain text file
+footy report -f weekend.html                 # export as styled dark HTML document ⭐
+footy report -d 3 -F -f weekend.html         # combine full rationales + HTML export
 ```
 
 | Option | Meaning |
@@ -484,7 +487,8 @@ footy report -d 3 -f weekend.txt             # combine
 | `-c`, `--min-confidence [HIGH\|MEDIUM\|LOW]` | Tier floor (**default MEDIUM**) |
 | `-l`, `--league TEXT` | League slug filter |
 | `-d`, `--days INTEGER` | Days ahead to look for fixtures |
-| `-f`, `--output PATH` | Save the report as plain text |
+| `-F`, `--full` | Print 100% full, untruncated rationale strings without clipping |
+| `-f`, `--output PATH` | Save report as plain text (`.txt`) or styled HTML document (`.html` / `.htm`) |
 
 > [!IMPORTANT]
 > **`report` defaults to MEDIUM, not HIGH.** This is deliberate: HIGH picks (P≥80%) have model odds ≤1.25, below the 1.32 value floor. The real value zone for accumulators is MEDIUM (P 60–76%, model odds 1.32–1.67). Use `-c HIGH` when you specifically want maximum certainty regardless of odds.
@@ -950,6 +954,24 @@ At 0.2037, when the model says 80% outcomes happen roughly 80% of the time — n
 | Low data quality | Insufficient matches for confident analysis |
 | High draw probability | P(draw) > 28% — affects DNB and 1X2 reliability |
 | Form volatility | Results highly inconsistent over last 10 matches |
+
+### Directional Factor Scoring & Visual Alignment
+
+Factor scores range from **−1.0** (strongly favours away) to **+1.0** (strongly favours home), with **0.0** representing neutral/balanced data points:
+
+- **Home Advantage (`+ score`)**: Sits on the **Left** side of the central divider `│` (`← Home Favoured`).
+- **Away Advantage (`- score`)**: Sits on the **Right** side of the central divider `│` (`Away Favoured →`).
+- **Theme-Adaptive Visual Palette**:
+  - **Dark Mode**: Lighter, luminous Cobalt Blue (`#3892FF`) for Home, Pink-Magenta (`#FF3B85`) for Away.
+  - **Light Mode**: Darker, deep Royal Navy (`#0052B4`) for Home, Crimson Burgundy (`#B0003A`) for Away.
+- **Team Name Color-Coding**: Team titles and stat strips highlight Home in Blue and Away in Crimson/Magenta across both CLI terminal output and the Web App (`/analysis` & `/analysis/match/:id`).
+
+### Exporting Reports (Plain Text vs Rich HTML)
+
+When using `footy report --output <file>` / `-f <file>`, the format is automatically chosen based on file extension:
+
+- **Plain Text (`-f weekend.txt`)**: Generates an unformatted text report containing match headers, top pick probabilities, implied odds, confidence tier, and full rationale strings.
+- **Rich Styled HTML (`-f weekend.html`)**: Exports a self-contained, dark-themed HTML document with full color coding, panel borders, emojis, confidence badges, and complete untruncated rationales. Perfect for viewing in any web browser or sharing via email/chat.
 
 ---
 
