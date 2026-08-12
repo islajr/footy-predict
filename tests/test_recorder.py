@@ -322,3 +322,16 @@ class TestEval2UP:
         """Away drew 1-1, led 0-1 at HT but never 2 ahead → 2UP LOSS."""
         _, is_correct = ResultRecorder._eval_1x2("Away 1X2 - 2UP", hs=1, as_=1, ht_hs=0, ht_as=1)
         assert is_correct is False
+
+
+def test_auto_record_all_summary_keys(tmp_path):
+    from src.database import Database
+    db = Database(db_path=tmp_path / "test.db")
+    recorder = ResultRecorder(db)
+    summary = recorder.auto_record_all()
+    assert "matches_processed" in summary
+    assert "total_matches" in summary
+    assert "predictions_evaluated" in summary
+    assert "total_predictions" in summary
+    assert summary["matches_processed"] == summary["total_matches"]
+    assert summary["predictions_evaluated"] == summary["total_predictions"]

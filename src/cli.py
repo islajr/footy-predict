@@ -863,15 +863,18 @@ def record(ctx: click.Context) -> None:
         summary = recorder.auto_record_all()
         progress.update(task, completed=True)
 
-    if summary["total_matches"] == 0:
+    matches_count = summary.get("matches_processed", summary.get("total_matches", 0))
+    preds_count = summary.get("predictions_evaluated", summary.get("total_predictions", 0))
+
+    if matches_count == 0:
         console.print("[yellow]No completed matches with unrecorded predictions found.[/yellow]")
         console.print("[dim]Run 'footy fetch' to update match statuses, then 'footy record'.[/dim]")
         return
 
-    console.print(f"\n[green]✓ Processed {summary['total_matches']} matches[/green]")
-    console.print(f"  Predictions evaluated: {summary['total_predictions']}")
-    console.print(f"  Correct: [green]{summary['correct']}[/green]")
-    console.print(f"  Incorrect: [red]{summary['incorrect']}[/red]")
+    console.print(f"\n[green]✓ Processed {matches_count} matches[/green]")
+    console.print(f"  Predictions evaluated: {preds_count}")
+    console.print(f"  Correct: [green]{summary.get('correct', 0)}[/green]")
+    console.print(f"  Incorrect: [red]{summary.get('incorrect', 0)}[/red]")
     if summary.get("void", 0):
         console.print(f"  Void: {summary['void']}")
 

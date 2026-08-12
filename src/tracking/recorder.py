@@ -146,6 +146,8 @@ class ResultRecorder:
         totals: dict[str, int] = {
             "matches_processed": 0,
             "predictions_evaluated": 0,
+            "total_matches": 0,
+            "total_predictions": 0,
             "correct": 0,
             "incorrect": 0,
             "void": 0,
@@ -167,6 +169,9 @@ class ResultRecorder:
                     exc,
                 )
                 totals["errors"] += 1
+
+        totals["total_matches"] = totals["matches_processed"]
+        totals["total_predictions"] = totals["predictions_evaluated"]
 
         logger.info(
             "Auto-record complete: %d matches, %d predictions "
