@@ -1228,6 +1228,17 @@ def report(
             verdict_text += f" ({risks[0]})"
         console.print(f"  [bold]VERDICT:[/bold] [{conf_c}]{verdict_text}[/{conf_c}]")
 
+        # ── Ranked market assessment ──────────────────────────────
+        market_assessments = getattr(analysis, "market_assessments", [])
+        if market_assessments:
+            from src.reporting.formatter import ReportFormatter
+            _fmt = ReportFormatter()
+            console.print(
+                _fmt.format_market_assessment_cli(
+                    market_assessments, home, away
+                )
+            )
+
         # ── Top pick ─────────────────────────────────────────────
         console.print(
             f"  {conf_i} [bold]TOP PICK:[/bold]  "
@@ -1258,6 +1269,7 @@ def report(
                     f"[dim]{a.pick}[/dim] [cyan]{a.probability:.0%}[/cyan] [yellow]{a.implied_odds:.2f}[/yellow]"
                 )
             console.print("  [dim]  Also:[/dim] " + "  [dim]·[/dim] ".join(alt_parts))
+
 
         console.print(Rule(style="dim", characters="─"))
 

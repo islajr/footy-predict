@@ -29,6 +29,7 @@ from rich.text import Text
 if TYPE_CHECKING:
     from src.analysis.engine import MatchAnalysis
     from src.analysis.factors import FactorResult
+    from src.analysis.market_narrator import AssessedMarket
     from src.analysis.markets import MarketRecommendation
 
 try:
@@ -739,6 +740,100 @@ class ReportFormatter:
         return Panel(
             content,
             title="[bold]📡 API Quota Status[/bold]",
+            border_style="blue",
+            expand=True,
+            padding=(1, 2),
+        )
+
+    # ─── Market Assessment Formatter ───────────────────────────
+
+    def format_market_assessment_cli(
+        self,
+        assessments: list,
+        home_name: str,
+        away_name: str,
+    ) -> Panel:
+        """Render the ranked market assessment as a Rich Panel.
+
+        Each pick is shown with:
+        - A circled rank number
+        - Pick label, probability (model), implied odds, confidence
+        - 2–3 sentence narrative including comparison context
+
+        Confidence tier separators (HIGH / MEDIUM / LOW) are inserted
+        so the user knows where the model's signal strength drops.
+        """
+        CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"
+
+        def _rank_label(rank: int) -> str:
+            if 1 <= rank <= 20:
+                return CIRCLED[rank - 1]
+            return f"({rank})"
+
+        _conf_style = {"HIGH": "bold green", "MEDIUM": "bold yellow", "LOW": "dim"}
+        _conf_icon  = {"HIGH": "🟢", "MEDIUM": "🟡", "LOW": "🔴"}
+        _theme_label = {
+            "OUTCOME":     "Outcome",
+            "GOALS":       "Goals",
+            "CLEAN_SHEET": "Clean Sheet",
+            "DOMINANCE":   "Dominance",
+            "TIMING":      "Timing",
+            "OTHER":       "Other",
+        }
+
+        items: list = []
+        current_tier: str | None = None
+
+        for am in assessments:
+            conf = getattr(am, "confidence", "LOW")
+
+            # Tier separator on confidence change
+            if conf != current_tier:
+                current_tier = conf
+                icon  = _conf_icon.get(conf, "")
+                style = _conf_style.get(conf, "dim")
+                items.append(Rule(
+                    title=f"[{style}]{icon} {conf} CONFIDENCE[/{style}]",
+                    style=style,
+                ))
+
+            rank      = getattr(am, "rank", 0)
+            pick      = getattr(am, "pick", "")
+            mkt_name  = getattr(am, "market_name", "")
+            prob      = getattr(am, "probability", 0.0)
+            odds      = getattr(am, "implied_odds", 0.0)
+            narrative = getattr(am, "narrative", "")
+            theme     = getattr(am, "theme", "")
+
+            col = _conf_style.get(conf, "dim").split()[-1]
+
+            # Rank + pick header line
+            header = Text()
+            header.append(f"  {_rank_label(rank)} ", style="bold")
+            header.append(f"{pick}", style=f"bold {col}")
+            header.append(f"  {prob:.0%} (model)", style="cyan")
+            header.append(f"  {odds:.2f} implied", style="yellow")
+            if mkt_name:
+                header.append(
+                    f"  [{_theme_label.get(theme, theme)}]",
+                    style="dim",
+                )
+            items.append(header)
+
+            # Narrative paragraph
+            if narrative:
+                items.append(Text(f"     {narrative}", style="dim"))
+
+            items.append("")
+
+        if not items:
+            items.append(Text("No market assessments available.", style="dim"))
+
+        content = Group(*items)
+        return Panel(
+            content,
+            title=f"[bold]📊 Market Assessment — {home_name} vs {away_name}[/bold]",
+            subtitle="[dim]ranked by statistical backing · model implied odds shown (1/P)[/dim]",
             border_style="blue",
             expand=True,
             padding=(1, 2),

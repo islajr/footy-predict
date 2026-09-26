@@ -345,7 +345,22 @@ async def show_match_detail(
                 "risk_factors": r.risk_factors
             }
             for r in a.market_recommendations
-        ]
+        ],
+        "market_assessments": [
+            {
+                "rank": am.rank,
+                "pick": am.pick,
+                "market_name": am.market_name,
+                "market_code": am.market_code,
+                "probability": am.probability,
+                "implied_odds": am.implied_odds,
+                "confidence": am.confidence,
+                "backing_score": am.backing_score,
+                "narrative": am.narrative,
+                "theme": am.theme,
+            }
+            for am in a.market_assessments
+        ],
     }
 
     context.update({

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from src.analysis.factors import ALL_FACTORS, FactorResult
+from src.analysis.market_narrator import AssessedMarket, rank_and_narrate
 from src.analysis.markets import MarketRecommendation, evaluate_all_markets
 from src.config import CONFIDENCE_THRESHOLDS, FACTOR_WEIGHTS, LEAGUES
 from src.database import Database
@@ -59,6 +60,7 @@ class MatchAnalysis:
     overall_home_score: float = 0.0
     overall_confidence: float = 0.0
     market_recommendations: list[MarketRecommendation] = field(default_factory=list)
+    market_assessments: list[AssessedMarket] = field(default_factory=list)
     risk_flags: list[str] = field(default_factory=list)
     data_quality: str = "LOW"
     summary: str = ""
@@ -161,24 +163,35 @@ class AnalysisEngine:
             patterns=patterns,
         )
 
+        # ── Rank and narrate market assessments ────────────────
+        home_name = home_team["name"]
+        away_name = away_team["name"]
+        market_assessments = rank_and_narrate(
+            recommendations=market_recs,
+            factors=factor_results,
+            home_name=home_name,
+            away_name=away_name,
+        )
+
         # ── Generate summary ───────────────────────────────────
         league_name = self._get_league_name(league_id)
         summary = self._generate_summary(
-            home_team["name"], away_team["name"],
+            home_name, away_name,
             overall_score, overall_confidence,
             factor_results, data_quality,
         )
 
         return MatchAnalysis(
             match_id=match_id,
-            home_team=home_team["name"],
-            away_team=away_team["name"],
+            home_team=home_name,
+            away_team=away_name,
             league=league_name,
             match_date=match.get("date", ""),
             factor_results=factor_results,
             overall_home_score=round(overall_score, 4),
             overall_confidence=round(overall_confidence, 4),
             market_recommendations=market_recs,
+            market_assessments=market_assessments,
             risk_flags=risk_flags,
             data_quality=data_quality,
             summary=summary,
