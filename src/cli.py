@@ -1197,18 +1197,38 @@ def report(
         match_date = getattr(analysis, "match_date", "")
         dq = getattr(analysis, "data_quality", "MEDIUM")
         risks = getattr(analysis, "risk_flags", [])
+        narrative = getattr(analysis, "summary", "") or ""
+        overall_score = getattr(analysis, "overall_home_score", 0.0)
 
         # ── Match header ──────────────────────────────────────────
         dq_colour = {"HIGH": "green", "MEDIUM": "yellow", "LOW": "red"}.get(dq, "white")
         console.print(
-            f"\n  [bold white]{home}[/bold white] [dim]vs[/dim] [bold white]{away}[/bold white]"
+            f"\n  [bold #3892FF]{home}[/bold #3892FF] [dim]vs[/dim] [bold #FF3B85]{away}[/bold #FF3B85]"
             f"  [dim]{league_name}  ·  {match_date}[/dim]"
             f"  [dim]data:[/dim] [{dq_colour}]{dq}[/{dq_colour}]"
         )
 
-        # ── Top pick ─────────────────────────────────────────────
+        # ── Narrative commentary paragraph ────────────────────────
+        if narrative:
+            console.print(f"  [italic dim]{narrative}[/italic dim]")
+
+        # ── VERDICT line ─────────────────────────────────────────
+        # A single plain-English sentence summarising what to do
         conf_c = _conf_colours.get(top.confidence, "white")
         conf_i = _conf_icons.get(top.confidence, "⚪")
+        if abs(overall_score) > 0.35:
+            favoured = home if overall_score > 0 else away
+            verdict_text = f"Back {favoured} — strong profile, consistent form, data aligned."
+        elif abs(overall_score) > 0.12:
+            favoured = home if overall_score > 0 else away
+            verdict_text = f"{favoured} edge it on balance — proceed with normal caution."
+        else:
+            verdict_text = "Close call — proceed with caution, and weight your own intelligence highly."
+        if risks:
+            verdict_text += f" ({risks[0]})"
+        console.print(f"  [bold]VERDICT:[/bold] [{conf_c}]{verdict_text}[/{conf_c}]")
+
+        # ── Top pick ─────────────────────────────────────────────
         console.print(
             f"  {conf_i} [bold]TOP PICK:[/bold]  "
             f"[{conf_c}]{top.pick}[/{conf_c}]"

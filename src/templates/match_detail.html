@@ -33,10 +33,24 @@
         </div>
     </div>
 
-    <!-- Rationale summary paragraph -->
+    <!-- Narrative commentary card -->
     {% if analysis.summary %}
-    <div style="border-left: 4px solid var(--accent); padding-left: var(--space-3); font-size: var(--text-md); font-style: italic; color: var(--text-primary); margin-bottom: var(--space-4);">
-        "{{ analysis.summary }}"
+    <div style="background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: var(--space-4); margin-bottom: var(--space-4);">
+        <div style="display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3);">
+            <span style="font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-tertiary);">📋 Analysis</span>
+            {% if analysis.overall_home_score > 0.35 %}
+                <span style="font-size: var(--text-xs); font-weight: 700; background: rgba(56, 146, 255, 0.15); color: #3892FF; border-radius: 100px; padding: 2px 10px;">VERDICT: Back {{ analysis.home_team }}</span>
+            {% elif analysis.overall_home_score > 0.12 %}
+                <span style="font-size: var(--text-xs); font-weight: 700; background: rgba(56, 146, 255, 0.10); color: #3892FF; border-radius: 100px; padding: 2px 10px;">VERDICT: {{ analysis.home_team }} edge it</span>
+            {% elif analysis.overall_home_score < -0.35 %}
+                <span style="font-size: var(--text-xs); font-weight: 700; background: rgba(255, 59, 133, 0.15); color: #FF3B85; border-radius: 100px; padding: 2px 10px;">VERDICT: Back {{ analysis.away_team }}</span>
+            {% elif analysis.overall_home_score < -0.12 %}
+                <span style="font-size: var(--text-xs); font-weight: 700; background: rgba(255, 59, 133, 0.10); color: #FF3B85; border-radius: 100px; padding: 2px 10px;">VERDICT: {{ analysis.away_team }} edge it</span>
+            {% else %}
+                <span style="font-size: var(--text-xs); font-weight: 700; background: rgba(150,150,150,0.12); color: var(--text-tertiary); border-radius: 100px; padding: 2px 10px;">VERDICT: Too close to call</span>
+            {% endif %}
+        </div>
+        <p style="font-size: var(--text-md); line-height: 1.7; color: var(--text-secondary); margin: 0;">{{ analysis.summary }}</p>
     </div>
     {% endif %}
 

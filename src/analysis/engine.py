@@ -532,35 +532,181 @@ class AnalysisEngine:
         factors: list[FactorResult],
         data_quality: str,
     ) -> str:
-        """Generate a natural language summary of the analysis."""
-        # Determine who's favoured
-        if score > 0.25:
-            favour = f"{home_name} are favoured"
-            strength = "strongly" if score > 0.5 else "slightly"
-        elif score < -0.25:
-            favour = f"{away_name} are favoured"
-            strength = "strongly" if score < -0.5 else "slightly"
+        """Generate a narrative commentary paragraph for a match analysis.
+
+        Draws on actual factor data_points (form strings, PPG, H2H records,
+        league positions, momentum) rather than just restating numbers.
+        Returns a 3–5 sentence paragraph suitable for display to a human reader.
+        """
+
+        def _dp(name: str) -> dict:
+            for f in factors:
+                if f.name == name:
+                    return f.data_points or {}
+            return {}
+
+        def _score(name: str) -> float:
+            for f in factors:
+                if f.name == name:
+                    return f.score or 0.0
+            return 0.0
+
+        rf = _dp("recent_form")
+        hf = _dp("home_form")
+        af = _dp("away_form")
+        h2h = _dp("head_to_head")
+        pos = _dp("league_position")
+        mom = _dp("momentum")
+        def_dp = _dp("defensive_record")
+        sf = _dp("scoring_frequency")
+
+        sentences: list[str] = []
+
+        # ── 1. Opening: overall lean + who's doing it ─────────
+        if score > 0.35:
+            opener = f"{home_name} hold a clear advantage heading into this fixture."
+        elif score > 0.12:
+            opener = f"{home_name} have the edge, though this one is closer than it looks."
+        elif score < -0.35:
+            opener = f"{away_name} carry the stronger form profile into this match."
+        elif score < -0.12:
+            opener = f"{away_name} have a slight advantage, but the margins are thin."
         else:
-            favour = "This looks like an evenly-matched contest"
-            strength = ""
+            opener = f"This looks like an evenly matched contest — the data doesn't favour either side clearly."
+        sentences.append(opener)
 
-        # Top factors
-        influential = sorted(
-            factors,
-            key=lambda f: abs(f.score) * f.confidence * self.weights.get(f.name, 0),
-            reverse=True,
-        )[:3]
+        # ── 2. Form context for both teams ────────────────────
+        h_rf = rf.get("home") or {}
+        a_rf = rf.get("away") or {}
+        h_form = h_rf.get("form_string") or pos.get("home_form_string") or ""
+        a_form = a_rf.get("form_string") or pos.get("away_form_string") or ""
+        h_ppg = h_rf.get("ppg")
+        a_ppg = a_rf.get("ppg")
 
-        factor_summary = "; ".join(
-            f"{f.name.replace('_', ' ').title()} ({f.score:+.2f})"
-            for f in influential
-        )
+        # Home form sentence
+        if h_form or h_ppg is not None:
+            parts = []
+            if h_form:
+                parts.append(f"in {h_form} form")
+            if h_ppg is not None:
+                parts.append(f"{h_ppg:.1f} PPG")
+            # Home venue record
+            hf_wins = hf.get("home_wins")
+            hf_played = hf.get("home_played")
+            hf_gpg = hf.get("gpg")
+            if hf_wins is not None and hf_played and hf_played > 0:
+                wr = round(hf_wins / hf_played * 100)
+                parts.append(f"winning {wr}% of home matches")
+            if hf_gpg is not None:
+                parts.append(f"scoring {hf_gpg:.1f} per game at home")
+            sentences.append(f"{home_name} are {', '.join(parts)}." if parts else "")
 
-        parts = [
-            f"{favour}{f' ({strength})' if strength else ''}.",
-            f"Overall score: {score:+.2f} (confidence: {confidence:.0%}).",
-            f"Data quality: {data_quality}.",
-            f"Key factors: {factor_summary}.",
-        ]
+        # Away form sentence
+        if a_form or a_ppg is not None:
+            parts = []
+            if a_form:
+                parts.append(f"in {a_form} form")
+            if a_ppg is not None:
+                parts.append(f"{a_ppg:.1f} PPG")
+            af_wins = af.get("away_wins")
+            af_played = af.get("away_played")
+            af_gpg = af.get("gpg")
+            if af_wins is not None and af_played and af_played > 0:
+                wr = round(af_wins / af_played * 100)
+                parts.append(f"winning {wr}% of away games")
+            # Scoring struggles away
+            af_blank = af.get("failed_to_score")
+            if af_blank is not None and af_played and af_played > 0 and af_blank > af_played * 0.4:
+                parts.append(f"failing to score in {af_blank} of {af_played} away trips")
+            if af_gpg is not None:
+                parts.append(f"scoring {af_gpg:.1f} per game on the road")
+            sentences.append(f"{away_name} are {', '.join(parts)}." if parts else "")
 
-        return " ".join(parts)
+        # ── 3. League position context (if available) ─────────
+        h_pos = pos.get("home_position")
+        a_pos = pos.get("away_position")
+        h_pts = pos.get("home_points")
+        a_pts = pos.get("away_points")
+        pts_gap = pos.get("points_gap")
+        if h_pos and a_pos:
+            if pts_gap and pts_gap >= 5:
+                gap_str = f"{pts_gap} points separating them in the table"
+                sentences.append(
+                    f"The table reflects the difference too — {home_name} are {h_pos}{'st' if h_pos == 1 else 'nd' if h_pos == 2 else 'rd' if h_pos == 3 else 'th'} "
+                    f"vs {away_name} in {a_pos}{'st' if a_pos == 1 else 'nd' if a_pos == 2 else 'rd' if a_pos == 3 else 'th'}, with {gap_str}."
+                )
+            elif h_pts is not None and a_pts is not None and abs(h_pts - a_pts) <= 2:
+                sentences.append(
+                    f"In the table, they're level — {home_name} {h_pos}{'st' if h_pos == 1 else 'nd' if h_pos == 2 else 'rd' if h_pos == 3 else 'th'} "
+                    f"on {h_pts} pts, {away_name} {a_pos}{'st' if a_pos == 1 else 'nd' if a_pos == 2 else 'rd' if a_pos == 3 else 'th'} "
+                    f"on {a_pts} pts — which makes this a genuinely open match."
+                )
+
+        # ── 4. Head-to-head context ───────────────────────────
+        h2h_total = h2h.get("total_meetings")
+        h2h_hw = h2h.get("home_wins")
+        h2h_aw = h2h.get("away_wins")
+        h2h_d = h2h.get("draws")
+        h2h_scorelines = h2h.get("last_5_scorelines") or []
+        h2h_avg_goals = h2h.get("avg_goals_h2h")
+        h2h_trend = h2h.get("recent_h2h_trend") or ""
+        if h2h_total and h2h_total >= 3 and h2h_hw is not None and h2h_aw is not None:
+            if h2h_hw > h2h_aw + 2:
+                trend_note = f"{home_name} have dominated this fixture historically ({h2h_hw}W–{h2h_d}D–{h2h_aw}L"
+            elif h2h_aw > h2h_hw + 2:
+                trend_note = f"{away_name} have the better of this head-to-head ({h2h_hw}W–{h2h_d}D–{h2h_aw}L"
+            else:
+                trend_note = f"These sides are evenly matched head-to-head ({h2h_hw}W–{h2h_d}D–{h2h_aw}L"
+            if h2h_avg_goals is not None:
+                trend_note += f", averaging {h2h_avg_goals:.1f} goals per meeting"
+            if h2h_scorelines:
+                trend_note += f"; recent: {', '.join(h2h_scorelines[:3])}"
+            trend_note += ")."
+            sentences.append(trend_note)
+
+        # ── 5. Momentum note ─────────────────────────────────
+        mom_score = _score("momentum")
+        h_mom = mom.get("home") or {}
+        a_mom = mom.get("away") or {}
+        h_trend_dir = h_mom.get("trend_direction") or ""
+        a_trend_dir = a_mom.get("trend_direction") or ""
+
+        if abs(mom_score) > 0.3:
+            if mom_score > 0 and h_trend_dir == "improving":
+                sentences.append(f"{home_name} are hitting form at the right time — momentum is in their favour going into this.")
+            elif mom_score > 0 and a_trend_dir in ("declining", "dropping"):
+                sentences.append(f"{away_name} have shown signs of a drop-off in recent weeks, which works in {home_name}'s favour.")
+            elif mom_score < 0 and a_trend_dir == "improving":
+                sentences.append(f"{away_name} look to be peaking at the right time — their trajectory over the last month points upward.")
+            elif mom_score < 0 and h_trend_dir in ("declining", "dropping"):
+                sentences.append(f"{home_name} have lost ground in recent weeks, which gives {away_name} more reason to be confident.")
+
+        # ── 6. Defensive matchup note ─────────────────────────
+        home_cpg = def_dp.get("home_cpg") or def_dp.get("home_cpg_home")
+        away_cpg = def_dp.get("away_cpg") or def_dp.get("away_cpg_away")
+        home_cs = def_dp.get("home_cs_rate") or def_dp.get("home_cs_rate_home")
+        away_cs = def_dp.get("away_cs_rate") or def_dp.get("away_cs_rate_away")
+
+        def_notes = []
+        if home_cpg is not None and home_cpg < 0.8:
+            def_notes.append(f"{home_name}'s defence has been excellent at home, conceding just {home_cpg:.1f} per game")
+        elif home_cpg is not None and home_cpg > 1.8:
+            def_notes.append(f"{home_name} have been vulnerable defensively, conceding {home_cpg:.1f} per game")
+        if away_cpg is not None and away_cpg > 1.8:
+            def_notes.append(f"{away_name} have struggled defensively away from home ({away_cpg:.1f} conceded per game)")
+        elif away_cpg is not None and away_cpg < 0.9:
+            def_notes.append(f"{away_name} have kept things tight on the road, conceding just {away_cpg:.1f} per game")
+        if def_notes:
+            sentences.append(". ".join(def_notes) + ".")
+
+        # ── 7. Fallback if very sparse data ──────────────────
+        if len(sentences) <= 2:
+            sentences.append(
+                f"Data coverage is {data_quality.lower()} — treat these signals with appropriate caution "
+                f"and weight your own research more heavily for this one."
+            )
+
+        # Clean up empty sentences and join
+        narrative = " ".join(s for s in sentences if s.strip())
+        return narrative
+
