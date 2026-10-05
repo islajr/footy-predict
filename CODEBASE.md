@@ -27,9 +27,10 @@ footy-predict/
 │   │   ├── football_data_org.py # Client for Football-Data.org (secondary source)
 │   │   └── csv_loader.py       # Parser for football-data.co.uk CSV data
 │   ├── analysis/
-│   │   ├── factors.py          # 15 analysis factors with venue-split data and Poisson stats
-│   │   ├── engine.py           # AnalysisEngine orchestrator; produces decision-support cards
-│   │   └── markets.py          # Multi-direction market models (33–35 picks per match)
+│   │   ├── factors.py          # 16 analysis factors with venue-split data and Poisson stats
+│   │   ├── engine.py           # AnalysisEngine orchestrator; produces decision-support cards & narrative prose
+│   │   ├── markets.py          # Multi-direction market models (~61 picks per match)
+│   │   └── market_narrator.py  # Multi-factor market ranking & per-pick narrative commentary generator
 │   ├── tracking/
 │   │   ├── recorder.py         # Prediction outcomes evaluator
 │   │   ├── accuracy.py         # Dashboard metrics (Brier score & flat ROI)
@@ -341,15 +342,15 @@ Every league-season with finished matches, newest first, each with `league_id`, 
 
 This module evaluates the database records to generate match analyses and betting predictions.
 
-### A. The 15 Analysis Factors (`factors.py`)
+### A. The 16 Analysis Factors (`factors.py`)
 
 Every factor function shares a common signature:
 `factor(db: Database, home_team_id: int, away_team_id: int, league_id: int, season: str) -> FactorResult`
 
 *   **Inputs**: The database instance, the primary keys of the home and away teams, the league ID, and the current season string.
-*   **Returns**: A `FactorResult` containing a score ($s \in [-1.0, 1.0]$), a confidence rating ($c \in [0.0, 1.0]$), a text explanation, and a dictionary of raw backing statistics.
+*   **Returns**: A `FactorResult` containing a score ($s \in [-1.0, 1.0]$), a confidence rating ($c \in [0.0, 1.0]$), a text explanation, and a dictionary of raw backing statistics (`data_points`).
 
-Key design principles introduced in Phase A:
+Key design principles:
 - **Venue-split data**: home team's home record vs. away team's away record is preferred over combined season stats
 - **Poisson probabilities**: pre-computed by `scoring_patterns` and consumed by market models
 - **Explicit data keys**: fixed top-level keys (`home_gpg`, `away_gpg`, `home_cs_rate_home`, `away_cs_rate_away`, `min_rest`, `btts_avg_pct`, etc.) guarantee correct cross-factor data exchange
@@ -366,9 +367,10 @@ Key design principles introduced in Phase A:
 10. **Scoring Patterns (`scoring_patterns`)**: Historical BTTS rates, O/U rates, and pre-computed Poisson probabilities (`poisson_over_0_5` through `poisson_over_3_5`, `poisson_btts`, `poisson_home_over_0_5`, `poisson_away_over_0_5`).
 11. **Rest Days (`rest_days`)**: Days since last match. Exposes `min_rest` key for fixture congestion risk detection. Flags games where either team has < 3 days rest.
 12. **Rivalry (`rivalry`)**: Derby detection for same-city/region teams; adjusts expected upset frequency.
-13. **Venue Advantage (`venue_advantage`)** *(Phase A)*: Compares home team's home-only performance vs their away performance and vice versa for the away team. Produces a pure ground-bias signal.
-14. **Attacking Matchup (`attacking_matchup`)** *(Phase A)*: Direct attack-vs-defence blending. Home attack GPG minus away defensive CPG and vice versa. Produces `expected_home_goals`, `expected_away_goals`, `expected_total`, `expected_goal_diff`.
-15. **xG Quality (`xg_quality`)** *(Phase A)*: Shot quality analysis via expected goals data from `match_stats`. Detects over- and underperformance relative to xG; flags keepers on hot form.
+13. **Venue Advantage (`venue_advantage`)**: Compares home team's home-only performance vs their away performance and vice versa for the away team. Produces a pure ground-bias signal.
+14. **Attacking Matchup (`attacking_matchup`)**: Direct attack-vs-defence blending. Home attack GPG minus away defensive CPG and vice versa. Produces `expected_home_goals`, `expected_away_goals`, `expected_total`, `expected_goal_diff`.
+15. **xG Quality (`xg_quality`)**: Shot quality analysis via expected goals data from `match_stats`. Detects over- and underperformance relative to xG; flags keepers on hot form.
+16. **Opponent Strength (`opponent_strength`)**: Adjusts recent PPG performance by opponent strength derived from league standings rankings.
 
 ---
 
@@ -379,25 +381,50 @@ The central orchestrator that coordinates the match analysis process.
 *   **Methods**:
     *   `analyze_match(self, match_id: int) -> MatchAnalysis`: Coordinates the analysis process for a match:
         1.  Loads match details and participating team profiles.
-        2.  Evaluates the 16 factors, returning neutral scores if any throw an exception.
+        2.  Evaluates all 16 factors, returning neutral scores if any throw an exception.
         3.  Computes the overall score and confidence rating using a weighted average.
         4.  Gathers team season statistics.
         5.  Calls the market prediction models in `markets.py`.
-        6.  Generates a natural language summary and records the predictions.
-        7.  Returns a `MatchAnalysis` object.
+        6.  Invokes `_generate_summary()` to synthesize a natural language narrative paragraph from underlying factor `data_points` (form strings, PPG, H2H scorelines, league positions, momentum, and defensive matchups).
+        7.  Calls `rank_and_narrate()` in `market_narrator.py` to rank all recommendations by mathematical backing score, generate per-pick commentary, and identify shared statistical foundations across market options.
+        8.  Returns a `MatchAnalysis` object containing the verdict, summary narrative, recommendations, and market assessments.
     *   `analyze_matchweek(self, league_slug: str | None = None, from_date: str | None = None, to_date: str | None = None) -> list[MatchAnalysis]`: Runs batch analyses for a collection of upcoming fixtures.
 
 ---
 
 ### C. Market Models (`markets.py`)
 
-Contains the mathematical models for the 9 supported betting markets. Each model now emits **all meaningful pick directions** — no filtering occurs at this layer. The formatter is responsible for tiered display.
-
-Total picks per match: approximately 33–35.
+Contains the mathematical models for the 15 supported betting market families. Each model emits **all meaningful pick directions** (~61 picks per match total) — no filtering occurs at this layer.
 
 Probability blending: $P_{\text{final}} = 0.6 \cdot P_{\text{historical}} + 0.4 \cdot P_{\text{model}}$
 
 When Poisson probabilities are available from `scoring_patterns`, they are blended 55/45 with the logistic fallback.
+
+---
+
+### D. Ranked Market Assessment & Narrative Generator (`market_narrator.py`)
+
+Produces ranked, human-readable market assessments alongside per-pick statistical narratives.
+
+*   **`AssessedMarket` Dataclass**:
+    *   `market_code` (str): Unique market code (e.g. `"1x2"`, `"double-chance"`, `"win-to-nil"`).
+    *   `pick` (str): Pick direction (e.g. `"Home Win"`, `"Over 2.5"`, `"Home Win to Nil: No"`).
+    *   `tier` (str): Confidence tier (`"HIGH"`, `"MEDIUM"`, `"LOW"`).
+    *   `probability` (float): Blended model probability.
+    *   `confidence` (float): Factor confidence rating.
+    *   `implied_odds` (float): Fair model implied odds ($1 / \text{probability}$).
+    *   `backing_score` (float): Combined quality score used for market ranking:
+        $$\text{backing\_score} = P \times (1 + 0.15 \times \text{aligned\_factors})$$
+        Where $\text{aligned\_factors}$ counts independent factors aligned with the pick direction.
+    *   `shared_thesis_with` (str | None): Code of a higher-ranked pick sharing the same statistical basis.
+    *   `shared_thesis_note` (str | None): Decision advice for comparing bookmaker odds across connected picks.
+    *   `narrative` (str): Per-pick narrative explaining the statistical rationale.
+    *   `supporting_stats` (dict): Underlying data points supporting the pick.
+    *   `risk_factors` (list[str]): Key risk factors flagged for the pick.
+
+*   **Core Functions**:
+    *   `rank_and_narrate(recommendations: list[MarketRecommendation], factor_results: list[FactorResult]) -> list[AssessedMarket]`: Sorts all recommendations by `backing_score` descending without dropping picks, detects shared statistical foundations (e.g. Home Win vs DNB Home vs Double Chance 1X), attaches odds decision advice, and generates specific narrative prose for every option.
+
 
 *   **`model_1x2`**: Emits 3 picks — `1 (Home Win)`, `X (Draw)`, `2 (Away Win)`. Probabilities normalised to sum to 1. Rationales include form strings, streak detection, table position, and H2H record.
 *   **`model_double_chance`**: Emits 3 picks — `1X`, `X2`, `12`. Each rationale explains the risk profile of that sub-variant.
@@ -519,6 +546,7 @@ The Command Line Interface (CLI) is built using Click, providing command-line ac
 *   `analyze matchweek`: Generates prediction reports for upcoming matches.
 *   `analyze match "Home vs Away"`: Generates a factor analysis report for a specific fixture.
 *   `picks`: Displays a table of recommendations that meet the minimum confidence threshold.
+*   `report`: Displays weekly decision-support pick report with VERDICT line, match-level summary narrative, and ranked market assessment.
 *   `parlay`: Suggests an optimized parlay slip based on selected parameters.
 *   `record`: Evaluates settled predictions against completed match results.
 *   `accuracy`: Displays accuracy statistics and historical ROI metrics.
