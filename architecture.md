@@ -36,8 +36,9 @@ graph TD
     %% Analysis & Calibration Layer
     subgraph Analysis ["Analysis & Calibration Layer"]
         Engine["Analysis Engine (Orchestrator)"]
-        Factors["15-Factor Evaluator (Phase A: venue_advantage, attacking_matchup, xg_quality added)"]
-        Markets["Multi-Direction Market Models (33–35 picks/match)"]
+        Factors["16-Factor Evaluator (venue_advantage, attacking_matchup, xg_quality, opponent_strength)"]
+        Markets["Multi-Direction Market Models (~61 picks/match)"]
+        Narrator["Market Narrator (Ranked Assessment & Shared Thesis Engine)"]
         Calibrator["Calibrator (Weight Tuning)"]
         Recorder["Result Recorder (Outcome Settler — Yes/No WtN aware)"]
         Tracker["Accuracy Tracker (ROI/Brier Scores)"]
@@ -66,6 +67,8 @@ graph TD
     DB <--> Engine
     Engine --> Factors
     Engine --> Markets
+    Engine --> Narrator
+    Markets --> Narrator
     Factors --> DB
     
     Recorder --> DB
@@ -88,9 +91,9 @@ graph TD
 
 ### Layer Definitions
 
-1.  **Presentation Layer**: Direct interfaces for users. The Web Server serves Jinja2 templates styled with a premium macOS-inspired dark/light theme. The Click CLI handles script execution, administrative tasks, and text-based report rendering. The Telegram Bot provides mobile alerts, picks, and matchweek reports.
+1.  **Presentation Layer**: Direct interfaces for users. The Web Server serves Jinja2 templates styled with a premium dark/light theme. The Click CLI handles script execution, administrative tasks, and text-based report rendering with VERDICT lines and market assessment cards. The Telegram Bot provides mobile alerts, picks, and matchweek reports.
 2.  **Service & REST Layer**: A FastAPI routing system that exposes endpoints `/api/v1/...` for asynchronous interactions, background sync tasks, parlay builder operations, settings management, and data feeds.
-3.  **Analysis & Calibration Layer**: The analytical core. The `AnalysisEngine` runs match-specific factors, feeds scores into the `MarketRecommendation` models, records final match outcomes, computes accuracy metrics, and calibrates factor weights.
+3.  **Analysis & Calibration Layer**: The analytical core. The `AnalysisEngine` runs match-specific factors, generates narrative prose summaries, feeds scores into market models, calls `MarketNarrator` to compute mathematical backing scores and detect shared statistical thesis across options, records final match outcomes, computes accuracy metrics, and calibrates factor weights.
 4.  **Data Ingestion Layer**: Responsible for retrieving raw information. Includes clients for API-Football (primary) and Football-Data.org (secondary), a CSV loader for importing football-data.co.uk statistics, and a Cache Manager that intercepts API queries.
 5.  **Persistence Layer**: Comprises the SQLite file database (`footy.db`) and a local file store (`data/weights.json`) which persists the running weights of the analysis factors.
 
@@ -192,14 +195,17 @@ sequenceDiagram
 ```
 
 1.  **Fact-Gathering**: The `AnalysisEngine` retrieves the match metadata (teams, season, league).
-2.  **Factor Evaluation**: 15 independent analysis factors run in parallel (12 original + 3 added in Phase A: `venue_advantage`, `attacking_matchup`, `xg_quality`). Each factor queries relevant segments of the database. All factors expose standardised top-level data keys so that market models can consume factor outputs without key-path guessing.
+2.  **Factor Evaluation**: 16 independent analysis factors run in parallel (`recent_form`, `home_form`, `away_form`, `scoring_frequency`, `defensive_record`, `head_to_head`, `league_position`, `goal_timing`, `momentum`, `scoring_patterns`, `rest_days`, `rivalry`, `venue_advantage`, `attacking_matchup`, `xg_quality`, `opponent_strength`). Each factor queries relevant segments of the database. All factors expose standardised top-level data keys so that market models can consume factor outputs without key-path guessing.
 3.  **Weighted Score Aggregation**: The overall home advantage score ($S$) and confidence ($C$) are computed using a weighted average. Factors with low confidence contribute less to the total, preventing incomplete data from skewing the results:
-    $$S = \frac{\sum_{i=1}^{15} (s_i \cdot w_i \cdot c_i)}{\sum_{i=1}^{15} (w_i \cdot c_i)}$$
+    $$S = \frac{\sum_{i=1}^{16} (s_i \cdot w_i \cdot c_i)}{\sum_{i=1}^{16} (w_i \cdot c_i)}$$
     Where $s_i$ is the factor score (-1 to +1), $w_i$ is the factor weight, and $c_i$ is the factor confidence (0 to 1).
-4.  **Market Blending**: The aggregated factor scores and raw team season statistics are fed into the prediction models. Each model now emits **all pick directions** (e.g., Over AND Under, all three 1X2 outcomes). For each direction, the model-derived probability is blended with observed historical frequencies:
+4.  **Market Blending**: The aggregated factor scores and raw team season statistics are fed into the prediction models. Each model emits **all pick directions** (~61 picks per match total across 15 market families). For each direction, the model-derived probability is blended with observed historical frequencies:
     $$P_{\text{final}} = 0.6 \cdot P_{\text{historical}} + 0.4 \cdot P_{\text{model}}$$
-    Where Poisson probabilities are pre-computed by `scoring_patterns`, they are blended 55/45 with the logistic fallback. Approximately 33–35 pick recommendations are produced per match.
-5.  **Persistence**: The resulting recommendations are saved in the `predictions` table (one row per match × market × pick), making them available for accuracy tracking once the match finishes.
+    Where Poisson probabilities are pre-computed by `scoring_patterns`, they are blended 55/45 with the logistic fallback.
+5.  **Narrative Synthesis & Market Assessment**:
+    *   `_generate_summary()` builds a human-readable summary narrative from factor `data_points` (form strings, PPG, H2H scorelines, league positions, momentum, defensive matchup).
+    *   `market_narrator.rank_and_narrate()` calculates a mathematical backing score ($\text{backing\_score} = P \times (1 + 0.15 \times \text{aligned\_factors})$), ranks all picks without filtering, groups options sharing statistical foundations (e.g. Home Win, DNB Home, Double Chance 1X), attaches odds comparison advice, and generates per-pick narrative prose.
+6.  **Persistence**: The resulting recommendations are saved in the `predictions` table (one row per match × market × pick), making them available for accuracy tracking once the match finishes.
 
 ### C. The Settlement & Learning Pipeline
 
