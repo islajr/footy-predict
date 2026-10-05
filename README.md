@@ -13,13 +13,15 @@ Runs entirely on your laptop with SQLite. No hosting required.
 | Capability | Detail |
 |---|---|
 | **16-Factor Analysis Engine** | Form, xG quality, head-to-head, rest days, rivalry, venue bias, opponent strength, attacking matchup, scoring patterns, goal timing, and more |
-| **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~65 picks per fixture |
+| **15 Betting Market Families** | 1X2, Double Chance, Draw No Bet, Over/Under (0.5–3.5), GG/NG, Win to Nil, Win Either Half, Asian Handicap, Team O/U, **1X2-1UP/2UP**, **1st Half O/U** (0.5/1.5), **2nd Half O/U** (0.5/1.5), **Home Team 1st/2nd Half O/U**, **Away Team 1st/2nd Half O/U** — ~61 picks per fixture |
+| **Match Narrative Synthesis** | Human-readable summary commentary built from form, PPG, H2H scorelines, standings, momentum, and defensive matchups + VERDICT line |
+| **Ranked Market Narrator** | Comprehensive market ranking by mathematical backing score ($P \times (1 + 0.15 \times \text{aligned\_factors})$), shared-thesis cross-referencing, and per-pick prose commentary |
 | **Value Zone Filtering** | `footy report` defaults to **MEDIUM** confidence + ≥1.32 model odds — the correct value zone for 64,000-odds accumulator construction |
-| **Weekly Decision-Support Report** | `footy report` — per-fixture top pick, 100% full rationale (`-F`/`--full`), risk flags, and 4 alternatives. Exportable as plain text (`.txt`) or rich styled HTML (`.html`) |
+| **Weekly Decision-Support Report** | `footy report` — VERDICT line, summary narrative block, ranked market assessment, top pick, and 4 alternatives. Exportable as plain text (`.txt`) or rich styled HTML (`.html`) |
 | **Directional Factor Scoring** | Home (Left, positive) vs Away (Right, negative) factor score alignment (`← Home │ Away →`) with theme-adaptive visual colors across terminal CLI and Web UI (`/analysis`) |
 | **Quota-Aware Fetching** | `footy fetch-upcoming` stays within the 100 req/day free API tier |
 | **Accuracy Tracking** | `footy record` + `footy accuracy` + `footy calibrate` — a self-improving loop across the season |
-| **245 Tests** | Pytest suite covering factors, markets, settlement logic, calibration, standings derivation |
+| **246 Tests** | Pytest suite covering factors, market models, narrative narrator, settlement logic, calibration, standings derivation |
 
 ---
 
@@ -174,7 +176,9 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 
 ### Active (Season 2026/27)
 - ✅ 16-factor analysis engine
-- ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~65 picks/fixture)
+- ✅ 15 market families including 1UP/2UP and 6 new half-time markets (~61 picks/fixture)
+- ✅ Human-readable match narrative synthesis engine (`_generate_summary()`)
+- ✅ Ranked market assessment engine (`market_narrator.py`) with shared-thesis cross-referencing and per-pick commentary
 - ✅ Full untruncated rationales via `--full` / `-F` flag & cell text wrapping
 - ✅ Rich styled HTML report exports via `footy report -f filename.html`
 - ✅ Home (Left) vs Away (Right) factor alignment and theme-adaptive color styling across CLI & Web UI
@@ -183,12 +187,12 @@ Premier League · La Liga · Bundesliga · Serie A · Ligue 1 · Eredivisie · L
 - ✅ Accuracy tracking and calibration loop
 - ✅ Data integrity: team canonicalisation (325 clubs), 11,609 duplicate rows removed, fixture-identity unique index
 - ✅ Standings write guarded against downgrade, labelled from the API response, and rebuildable offline via `footy derive-standings` — 60 league-seasons ranked, up from 13
-- ✅ 245 tests passing
-- ⚠️ xG quality factor blocked at 0% — FDO-sourced rows lack `api_football_id`; resolves as 2026/27 fixtures arrive
-- ⚠️ Nine league-seasons have a club stored under two rows (`CA Osasuna` / `Osasuna` and similar) — needs an alias entry in `src/team_names.py`
+- ✅ 246 tests passing
+- 🔧 Phase D: Real-world odds evaluation ($1/P$ model implied odds vs live bookmaker lines) & settlement tracking
+- 📋 Optional Gen-AI phrasing layer (`--ai` / `--llm` flag) with structured grounding
 
 ### Phase E (After Season Start)
-- 📋 Bookmaker odds integration (true edge detection)
+- 📋 Automated bookmaker odds ingestion
 - 📋 Injury reports (`/injuries` endpoint)
 - 📋 Confirmed lineups (60min pre-KO)
 - 📋 Manager change detection + new manager bounce
@@ -220,8 +224,8 @@ python /path/to/simulate_historical.py
 - **[Architecture](architecture.md)** — system design and module layout
 - **[Codebase Map](CODEBASE.md)** — file-by-file reference
 - **[Simulation Report](simulation_report_phase_a.md)** — accuracy measurements, calibration history, factor coverage
-- **[Handoff — Standings Integrity](HANDOFF.md)** — closed work order: the standings write path that mislabelled seasons and let blank tables overwrite real ones. All three tasks landed 2026-08-09; temporary, delete once the four residual 2026-27 tables it names are cleared.
+- **[Handoff — Match Narratives & Standings](HANDOFF.md)** — operational notes: narrative engine, market narrator, Gen-AI evaluation, Phase D odds focus, and standings integrity.
 
 ---
 
-*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 245 tests*
+*Local-first · Decision-support · No hosting required · Python 3.11+ · 15 markets · 246 tests*
