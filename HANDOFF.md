@@ -1,3 +1,51 @@
+# Handoff — Match Narratives, Market Assessment & Odds Evaluation
+
+**Written 2026-10-05.** Operational notes covering the match narrative synthesis engine, ranked market assessment narrator, Gen-AI trade-off evaluation, and current Phase D focus.
+
+---
+
+## What Landed Recently
+
+| Feature / Task | Commits | Outcome |
+|---|---|---|
+| **Match Narrative Synthesis** | `4755315` | `_generate_summary()` in `src/analysis/engine.py` builds human-readable prose from factor `data_points` (form strings, PPG, H2H scorelines, league positions, momentum, defensive matchup). |
+| **Ranked Market Narrator** | `c2d1a0b` | `src/analysis/market_narrator.py` ranks ~61 picks per match by backing score ($P \times (1 + 0.15 \times \text{aligned\_factors})$), detects shared statistical foundations (e.g. Home Win, DNB Home, 1X), and generates per-pick narrative prose. |
+| **CLI & Web UI Presentation** | `4755315`, `c2d1a0b` | `footy report` displays VERDICT line, summary prose block, and ranked market cards. Web UI (`/analysis/match/:id`) renders color-coded VERDICT pill, summary card, and ranked option cards. |
+| **Test Suite Expansion** | — | **246 tests passing green** across factor evaluation, market models, narrator ranking, CLI formatting, and web routes. |
+
+---
+
+## Architectural Decision: Gen-AI vs. Rule-Based Narrator
+
+The team evaluated replacing the rule-based narrative engine with Generative AI (LLMs).
+
+### Key Trade-Off Analysis
+1. **Hallucination & Financial Risk:** LLMs can invent or subtly misstate statistics (e.g., claiming 5 consecutive wins instead of 3). In a betting decision-support tool, false statistical premises lead to bad betting decisions. The rule-based engine is 100% factually tied to SQLite.
+2. **Latency:** Rule-based generation takes **< 10ms** per matchweek report. LLM API calls add **15–45 seconds** per report run.
+3. **Determinism & Auditability:** Rule-based output is reproducible across runs; LLM output varies, making it difficult to isolate model bias shifts from phrasing variance.
+4. **Cost & Offline Capability:** Rule-based runs 100% offline at $0 cost; LLMs add external API dependencies and billing overhead.
+
+### Agreed Architecture (The Hybrid Approach)
+- **Default Core Engine:** Keep the deterministic, zero-latency rule-based narrator as the primary engine for CLI and Web UI.
+- **Opt-in Plugin Layer:** If Gen-AI is implemented in the future, it will operate as an opt-in CLI/web flag (`--ai` / `--llm`) using **Structured Grounding**—feeding exact pre-extracted `FactorResult.data_points` to an LLM with strict instructions to rephrase provided facts only.
+
+---
+
+## Current Focus (Phase D): Real-World Odds Evaluation
+
+With upcoming weekend games approaching, the immediate focus is evaluating model implied odds ($1 / \text{probability}$) against live bookmaker lines (SportyBet / Bet365):
+
+1. **Odds Edge Calculation:**
+   $$\text{Edge \%} = \left( \frac{\text{Bookmaker Odds}}{\text{Model Implied Odds}} - 1 \right) \times 100$$
+   $$\text{Expected Value (EV)} = (\text{Model Probability} \times \text{Bookmaker Odds}) - 1$$
+2. **Selection Strategy:**
+   - **Value Bets ($\text{EV} > 0$):** Bookmaker odds exceed model implied odds.
+   - **Anchor Bets (HIGH confidence, $\text{EV} \approx 0$):** High probability options offering fair odds for accumulator construction.
+   - **Trap Bets ($\text{EV} < 0$):** Bookmaker odds underpay for the model's assessed risk level.
+3. **Settlement Tracking:** Log actual match results via `footy record` and evaluate calibration metrics via `footy accuracy`.
+
+---
+
 # Handoff — Standings Integrity
 
 **Written 2026-08-09. All three tasks landed the same day.** Live working notes for whoever
